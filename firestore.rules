@@ -1,0 +1,100 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        getUserData().role == 'ADMIN' ||
+        request.auth.token.email == 'admin@azko.com'
+      );
+    }
+
+    function isDepartmentResponsible(deptId) {
+      return isAuthenticated() && (
+        isAdmin() ||
+        (getUserData().role == 'KARYAWAN' && deptId in getUserData().assignedDepartmentIds)
+      );
+    }
+
+    // USERS COLLECTION
+    // Semua user login dapat melihat daftar user (untuk mapping Penanggung Jawab)
+    // Hanya ADMIN yang dapat membuat, mengubah role, atau menugaskan departemen
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (
+        isAuthenticated() && 
+        request.auth.uid == userId && 
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'assignedDepartmentIds', 'isActive'])
+      );
+    }
+
+    // DEPARTMENTS COLLECTION
+    // Semua user dapat membaca seluruh departemen
+    // Hanya ADMIN yang dapat mengubah struktur departemen
+    match /departments/{departmentId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // SECTIONS COLLECTION
+    // Semua user dapat membaca seluruh section
+    // ADMIN memiliki hak tulis penuh. Karyawan hanya jika bertanggung jawab atas departemen section tersebut.
+    match /sections/{sectionId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || (
+        isAuthenticated() &&
+        isDepartmentResponsible(request.resource.data.departmentId)
+      );
+    }
+
+    // PRODUCTS COLLECTION
+    // Aturan Inti AZKO:
+    // 1. SEMUA USER YANG SUDAH LOGIN BOLEH MELIHAT SELURUH INVENTORY (Read All)
+    // 2. USER HANYA BOLEH MENAMBAH, MENGEDIT, MEMINDAHKAN, ATAU MENGHAPUS PRODUK PADA DEPARTEMEN TANGGUNG JAWABNYA
+    // 3. Diproses Oleh harus sesuai dengan identitas user yang sedang login
+    match /products/{productId} {
+      allow read: if isAuthenticated();
+
+      allow create: if isAuthenticated() && (
+        isAdmin() || (
+          isDepartmentResponsible(request.resource.data.departmentId) &&
+          request.resource.data.lastProcessedBy == getUserData().fullName
+        )
+      );
+
+      allow update: if isAuthenticated() && (
+        isAdmin() || (
+          // Produk asal harus merupakan tanggung jawab user
+          isDepartmentResponsible(resource.data.departmentId) &&
+          // Jika dipindahkan, departemen tujuan juga harus tetap dalam tanggung jawab user
+          isDepartmentResponsible(request.resource.data.departmentId) &&
+          // Tidak memalsukan pemroses
+          request.resource.data.lastProcessedBy == getUserData().fullName
+        )
+      );
+
+      allow delete: if isAuthenticated() && (
+        isAdmin() || isDepartmentResponsible(resource.data.departmentId)
+      );
+    }
+
+    // ACTIVITY / AUDIT LOGS
+    // Setiap user login dapat mencatat aktivitas perubahannya
+    // Hanya ADMIN yang dapat melihat seluruh riwayat aktivitas
+    match /activityLogs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false; // Riwayat audit tidak boleh diubah atau dihapus
+    }
+  }
+}

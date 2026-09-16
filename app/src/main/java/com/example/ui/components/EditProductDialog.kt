@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import android.graphics.Bitmap
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -49,6 +51,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -78,10 +81,13 @@ fun EditProductDialog(
         secId: Long,
         stockQuantity: Int,
         imageUri: String?,
+        imageUri2: String?,
+        imageUri3: String?,
         desc: String,
         isActive: Boolean
     ) -> Unit,
-    onPersistImage: (Uri, (String) -> Unit) -> Unit
+    onPersistImage: (Uri, (String) -> Unit) -> Unit,
+    onPersistBitmap: ((Bitmap, (String) -> Unit) -> Unit)? = null
 ) {
     val isEditMode = productWithLocation != null
     val p = productWithLocation?.product
@@ -91,7 +97,12 @@ fun EditProductDialog(
     var stockQuantityText by remember { mutableStateOf((p?.stockQuantity ?: 0).toString()) }
     var description by remember { mutableStateOf(p?.description ?: "") }
     var isActive by remember { mutableStateOf(p?.isActive ?: true) }
-    var currentImageUri by remember { mutableStateOf(p?.imageUri) }
+
+    // 3 Image Slots
+    var imageUri1 by remember { mutableStateOf(p?.imageUri) }
+    var imageUri2 by remember { mutableStateOf(p?.imageUri2) }
+    var imageUri3 by remember { mutableStateOf(p?.imageUri3) }
+    var activeSlotForPicker by remember { mutableStateOf<Int?>(null) }
 
     var selectedDeptId by remember {
         mutableStateOf(p?.departmentId ?: initialDepartmentId ?: departments.firstOrNull()?.id ?: 1L)
@@ -115,8 +126,34 @@ fun EditProductDialog(
     ) { uri: Uri? ->
         if (uri != null) {
             onPersistImage(uri) { savedPath ->
-                currentImageUri = savedPath
+                when (activeSlotForPicker) {
+                    1 -> imageUri1 = savedPath
+                    2 -> imageUri2 = savedPath
+                    3 -> imageUri3 = savedPath
+                }
             }
+        }
+    }
+
+    val takePictureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap: Bitmap? ->
+        if (bitmap != null && onPersistBitmap != null) {
+            onPersistBitmap(bitmap) { savedPath ->
+                when (activeSlotForPicker) {
+                    1 -> imageUri1 = savedPath
+                    2 -> imageUri2 = savedPath
+                    3 -> imageUri3 = savedPath
+                }
+            }
+        }
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            takePictureLauncher.launch(null)
         }
     }
 
@@ -156,83 +193,45 @@ fun EditProductDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Image Preview & Change / Remove Buttons
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(150.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (!currentImageUri.isNullOrEmpty()) {
-                        AsyncImage(
-                            model = currentImageUri,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Row(
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .padding(8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            OutlinedButton(
-                                onClick = {
-                                    photoPickerLauncher.launch(
-                                        androidx.activity.result.PickVisualMediaRequest(
-                                            ActivityResultContracts.PickVisualMedia.ImageOnly
-                                        )
-                                    )
-                                },
-                                shape = RoundedCornerShape(8.dp),
-                                colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-                                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
-                                )
-                            ) {
-                                Text("Ganti", fontSize = 11.sp)
-                            }
+                // 3 Slots for Product Images
+                Text(
+                    text = "Foto Produk (Maksimal 3 Gambar)",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "Slot yang belum digunakan tetap kosong. Pengguna tidak wajib mengisi semua slot.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
 
-                            Button(
-                                onClick = { currentImageUri = null },
-                                shape = RoundedCornerShape(8.dp),
-                                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.errorContainer,
-                                    contentColor = MaterialTheme.colorScheme.onErrorContainer
-                                )
-                            ) {
-                                Text("Hapus Foto", fontSize = 11.sp)
-                            }
-                        }
-                    } else {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Image,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                modifier = Modifier.size(36.dp)
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            OutlinedButton(
-                                onClick = {
-                                    photoPickerLauncher.launch(
-                                        androidx.activity.result.PickVisualMediaRequest(
-                                            ActivityResultContracts.PickVisualMedia.ImageOnly
-                                        )
-                                    )
-                                },
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Upload Foto Produk", fontSize = 12.sp)
-                            }
-                        }
-                    }
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ProductImageSlotItem(
+                        slotNumber = 1,
+                        imageUri = imageUri1,
+                        modifier = Modifier.weight(1f),
+                        onClick = { activeSlotForPicker = 1 },
+                        onDelete = { imageUri1 = null }
+                    )
+                    ProductImageSlotItem(
+                        slotNumber = 2,
+                        imageUri = imageUri2,
+                        modifier = Modifier.weight(1f),
+                        onClick = { activeSlotForPicker = 2 },
+                        onDelete = { imageUri2 = null }
+                    )
+                    ProductImageSlotItem(
+                        slotNumber = 3,
+                        imageUri = imageUri3,
+                        modifier = Modifier.weight(1f),
+                        onClick = { activeSlotForPicker = 3 },
+                        onDelete = { imageUri3 = null }
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -346,17 +345,17 @@ fun EditProductDialog(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Section Dropdown
+                // Komuditi Dropdown
                 ExposedDropdownMenuBox(
                     expanded = sectionExpanded,
                     onExpandedChange = { sectionExpanded = !sectionExpanded }
                 ) {
                     val currentSection = sections.firstOrNull { it.id == selectedSectionId }
                     OutlinedTextField(
-                        value = if (currentSection != null) "${currentSection.code} - ${currentSection.name}" else "Pilih Section",
+                        value = if (currentSection != null) "${currentSection.code} • ${currentSection.address}" else "Pilih Komuditi / Alamat",
                         onValueChange = {},
                         readOnly = true,
-                        label = { Text("Section (Wajib)") },
+                        label = { Text("Komuditi / Alamat (Wajib)") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = sectionExpanded) },
                         modifier = Modifier
                             .fillMaxWidth()
@@ -369,7 +368,7 @@ fun EditProductDialog(
                     ) {
                         availableSections.forEach { sec ->
                             DropdownMenuItem(
-                                text = { Text("${sec.code} - ${sec.name} (${sec.address})") },
+                                text = { Text("${sec.code} • ${sec.address}") },
                                 onClick = {
                                     selectedSectionId = sec.id
                                     sectionExpanded = false
@@ -421,7 +420,9 @@ fun EditProductDialog(
                                     selectedDeptId,
                                     selectedSectionId,
                                     parsedStock,
-                                    currentImageUri,
+                                    imageUri1,
+                                    imageUri2,
+                                    imageUri3,
                                     description.trim(),
                                     isActive
                                 )
@@ -434,6 +435,136 @@ fun EditProductDialog(
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("SIMPAN")
                     }
+                }
+            }
+        }
+    }
+
+    if (activeSlotForPicker != null) {
+        val slot = activeSlotForPicker!!
+        val currentUri = when (slot) {
+            1 -> imageUri1
+            2 -> imageUri2
+            3 -> imageUri3
+            else -> null
+        }
+        PhotoSourcePickerDialog(
+            title = "Pilih Gambar $slot",
+            hasExistingPhoto = !currentUri.isNullOrEmpty(),
+            onDismissRequest = { activeSlotForPicker = null },
+            onCameraClick = {
+                cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+            },
+            onGalleryClick = {
+                photoPickerLauncher.launch(
+                    androidx.activity.result.PickVisualMediaRequest(
+                        ActivityResultContracts.PickVisualMedia.ImageOnly
+                    )
+                )
+            },
+            onDeletePhotoClick = {
+                when (slot) {
+                    1 -> imageUri1 = null
+                    2 -> imageUri2 = null
+                    3 -> imageUri3 = null
+                }
+                activeSlotForPicker = null
+            }
+        )
+    }
+}
+
+@Composable
+fun ProductImageSlotItem(
+    slotNumber: Int,
+    imageUri: String?,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Card(
+        modifier = modifier
+            .height(118.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (!imageUri.isNullOrEmpty()) MaterialTheme.colorScheme.surfaceVariant
+            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ),
+        border = if (imageUri.isNullOrEmpty()) androidx.compose.foundation.BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+        ) else null
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            if (!imageUri.isNullOrEmpty()) {
+                AsyncImage(
+                    model = imageUri,
+                    contentDescription = "Gambar $slotNumber",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                // Slot number badge
+                Surface(
+                    shape = RoundedCornerShape(bottomEnd = 8.dp),
+                    color = Color.Black.copy(alpha = 0.65f),
+                    modifier = Modifier.align(Alignment.TopStart)
+                ) {
+                    Text(
+                        text = "Gambar $slotNumber",
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+
+                // Delete quick button on slot
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .size(28.dp)
+                        .padding(2.dp)
+                        .background(Color.Black.copy(alpha = 0.6f), shape = RoundedCornerShape(6.dp))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Hapus Foto",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            } else {
+                // Empty slot indicator
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier.padding(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AddPhotoAlternate,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                        modifier = Modifier.size(26.dp)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Gambar $slotNumber",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Kosong",
+                        fontSize = 9.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
                 }
             }
         }

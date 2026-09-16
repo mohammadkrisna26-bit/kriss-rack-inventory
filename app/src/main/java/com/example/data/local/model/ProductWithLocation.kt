@@ -10,4 +10,8 @@ data class ProductWithLocation(
     val sectionCode: String,
     val sectionName: String,
     val sectionAddress: String
-)
+) {
+    val komuditiCode: String get() = sectionCode
+    val komuditiName: String get() = sectionName
+    val komuditiAddress: String get() = sectionAddress
+}

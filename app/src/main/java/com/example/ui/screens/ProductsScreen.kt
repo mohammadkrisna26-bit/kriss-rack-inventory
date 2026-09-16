@@ -121,7 +121,7 @@ fun ProductsScreen(
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { viewModel.setSearchQuery(it) },
-                            placeholder = { Text("Cari Artikel, Nama, atau Section...") },
+                            placeholder = { Text("Cari Artikel, Nama, atau Komuditi...") },
                             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                             trailingIcon = {
                                 if (searchQuery.isNotEmpty()) {
@@ -294,7 +294,7 @@ fun ProductsScreen(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = if (searchQuery.isNotBlank()) "Barang '$searchQuery' tidak ditemukan di Section mana pun."
+                            text = if (searchQuery.isNotBlank()) "Barang '$searchQuery' tidak ditemukan di Komuditi mana pun."
                             else "Tidak ada produk sesuai filter.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -319,7 +319,7 @@ fun ProductsScreen(
                             onDetailClick = { selectedProductForDetail = item },
                             onEditClick = { selectedProductForEdit = item },
                             onMoveClick = { selectedProductForMove = item },
-                            onImageClick = { selectedImageForPreview = Pair(item.product.imageUri, item.product.name) },
+                            onImageClick = { selectedImageForPreview = Pair(item.product.primaryImageUri, item.product.name) },
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp)
                         )
                     }
@@ -349,14 +349,16 @@ fun ProductsScreen(
             departments = departments,
             sections = sections,
             onDismissRequest = { showAddProductDialog = false },
-            onSave = { article, name, deptId, secId, stockQuantity, imageUri, desc, _ ->
+            onSave = { article, name, deptId, secId, stockQuantity, img1, img2, img3, desc, _ ->
                 viewModel.createProduct(
                     articleNumber = article,
                     name = name,
                     departmentId = deptId,
                     sectionId = secId,
                     stockQuantity = stockQuantity,
-                    imageUri = imageUri,
+                    imageUri = img1,
+                    imageUri2 = img2,
+                    imageUri3 = img3,
                     description = desc
                 ) { success ->
                     if (success) {
@@ -364,7 +366,8 @@ fun ProductsScreen(
                     }
                 }
             },
-            onPersistImage = { uri, cb -> viewModel.persistImage(uri, cb) }
+            onPersistImage = { uri, cb -> viewModel.persistImage(uri, cb) },
+            onPersistBitmap = { bmp, cb -> viewModel.persistBitmap(bmp, cb) }
         )
     }
 
@@ -375,7 +378,7 @@ fun ProductsScreen(
             departments = departments,
             sections = sections,
             onDismissRequest = { selectedProductForEdit = null },
-            onSave = { article, name, deptId, secId, stockQuantity, imageUri, desc, isActive ->
+            onSave = { article, name, deptId, secId, stockQuantity, img1, img2, img3, desc, isActive ->
                 viewModel.updateProduct(
                     id = item.product.id,
                     article = article,
@@ -383,14 +386,17 @@ fun ProductsScreen(
                     departmentId = deptId,
                     sectionId = secId,
                     stockQuantity = stockQuantity,
-                    imageUri = imageUri,
+                    imageUri = img1,
+                    imageUri2 = img2,
+                    imageUri3 = img3,
                     description = desc,
                     isActive = isActive
                 ) { success ->
                     if (success) selectedProductForEdit = null
                 }
             },
-            onPersistImage = { uri, cb -> viewModel.persistImage(uri, cb) }
+            onPersistImage = { uri, cb -> viewModel.persistImage(uri, cb) },
+            onPersistBitmap = { bmp, cb -> viewModel.persistBitmap(bmp, cb) }
         )
     }
 
@@ -432,8 +438,8 @@ fun ProductsScreen(
                     selectedProductForDetail = null
                 }
             },
-            onViewLargePhotoClick = {
-                selectedImageForPreview = Pair(item.product.imageUri, item.product.name)
+            onViewLargePhotoClick = { uri ->
+                selectedImageForPreview = Pair(uri, item.product.name)
             },
             onUpdateStock = { newStock ->
                 viewModel.updateProductStock(item.product.id, newStock) { success ->

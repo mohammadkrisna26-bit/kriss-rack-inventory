@@ -54,7 +54,6 @@ fun EditSectionDialog(
     val isEdit = section != null
 
     var code by remember { mutableStateOf(section?.code ?: "") }
-    var name by remember { mutableStateOf(section?.name ?: "") }
     var address by remember { mutableStateOf(section?.address ?: "") }
     var description by remember { mutableStateOf(section?.description ?: "") }
     var selectedDeptId by remember {
@@ -96,7 +95,7 @@ fun EditSectionDialog(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (isEdit) "EDIT SECTION" else "TAMBAH SECTION",
+                            text = if (isEdit) "EDIT KOMUDITI" else "TAMBAH KOMUDITI",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
@@ -108,36 +107,24 @@ fun EditSectionDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Kode Section
+                // Kode Komuditi
                 OutlinedTextField(
                     value = code,
                     onValueChange = { code = it },
-                    label = { Text("Kode Section (Wajib)") },
-                    placeholder = { Text("Contoh: H-01, T-03") },
+                    label = { Text("Kode Komuditi (Wajib)") },
+                    placeholder = { Text("Contoh: AM, H-01") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Nama Section
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Nama Section") },
-                    placeholder = { Text("Contoh: Section H-01") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Alamat Section
+                // Alamat Komuditi
                 OutlinedTextField(
                     value = address,
                     onValueChange = { address = it },
-                    label = { Text("Alamat Section (Wajib)") },
-                    placeholder = { Text("Contoh: Rak Hardware A1, Wall Bay B2") },
+                    label = { Text("Alamat Komuditi (Wajib)") },
+                    placeholder = { Text("Contoh: 1.WLD.AM.003, Rak A1") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -208,7 +195,7 @@ fun EditSectionDialog(
                             if (code.isNotBlank() && address.isNotBlank() && selectedDeptId > 0) {
                                 onSave(
                                     code.trim(),
-                                    name.trim().ifEmpty { "Section ${code.trim().uppercase()}" },
+                                    "Komuditi ${code.trim().uppercase()}",
                                     address.trim(),
                                     selectedDeptId,
                                     description.trim()

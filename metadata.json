@@ -1,6 +1,6 @@
 {
-  "name": "AZKO Rack Inventory",
-  "description": "Pendataan Barang & Lokasi Section untuk pekerja toko",
+  "name": "Inventory THSR by.kriss",
+  "description": "Pendataan Barang & Lokasi Komuditi offline untuk inventaris toko",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

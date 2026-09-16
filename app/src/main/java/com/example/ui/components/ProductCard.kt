@@ -78,13 +78,30 @@ fun ProductCard(
                         .clickable { onImageClick() },
                     contentAlignment = Alignment.Center
                 ) {
-                    if (!p.imageUri.isNullOrEmpty()) {
+                    val primaryUri = p.primaryImageUri
+                    val totalPhotos = p.allImageUris.size
+                    if (primaryUri != null) {
                         AsyncImage(
-                            model = p.imageUri,
+                            model = primaryUri,
                             contentDescription = p.name,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
                         )
+                        if (totalPhotos > 1) {
+                            Surface(
+                                shape = RoundedCornerShape(topStart = 6.dp),
+                                color = Color.Black.copy(alpha = 0.65f),
+                                modifier = Modifier.align(Alignment.BottomEnd)
+                            ) {
+                                Text(
+                                    text = "$totalPhotos",
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
                     } else {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -183,40 +200,12 @@ fun ProductCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-
-                    if (p.responsiblePerson.isNotBlank() || p.lastProcessedBy.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(3.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            if (p.responsiblePerson.isNotBlank()) {
-                                Text(
-                                    text = "PJ: ${p.responsiblePerson}",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            if (p.lastProcessedBy.isNotBlank()) {
-                                Text(
-                                    text = "• Oleh: ${p.lastProcessedBy}",
-                                    fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Action Row: [DETAIL] [EDIT] [PINDAH SECTION]
+            // Action Row: [DETAIL] [EDIT] [PINDAH KOMUDITI]
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -274,7 +263,7 @@ fun ProductCard(
                         modifier = Modifier.size(14.dp)
                     )
                     Spacer(modifier = Modifier.width(3.dp))
-                    Text("PINDAH SECTION", fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                    Text("PINDAH KOMUDITI", fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }

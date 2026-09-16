@@ -28,11 +28,11 @@ object DataSeeder {
             DepartmentEntity(name = "Electrical", description = "Peralatan elektronik, lampu, audio TWS, dan aksesoris listrik")
         )
 
-        // 2. Seed Sections
+        // 2. Seed Sections (Komuditi)
         val h01Id = dao.insertSection(
             SectionEntity(
                 code = "H-01",
-                name = "Section H-01",
+                name = "Komuditi H-01",
                 address = "Rak Hardware A1",
                 departmentId = hardwareId,
                 description = "Rak utama baris depan hardware perkakas"
@@ -41,7 +41,7 @@ object DataSeeder {
         val h02Id = dao.insertSection(
             SectionEntity(
                 code = "H-02",
-                name = "Section H-02",
+                name = "Komuditi H-02",
                 address = "Rak Hardware A2",
                 departmentId = hardwareId,
                 description = "Rak display tengah hardware"
@@ -50,7 +50,7 @@ object DataSeeder {
         val t01Id = dao.insertSection(
             SectionEntity(
                 code = "T-01",
-                name = "Section T-01",
+                name = "Komuditi T-01",
                 address = "Rak Tools A1",
                 departmentId = toolsId,
                 description = "Display obeng & perkakas tangan ringan"
@@ -59,7 +59,7 @@ object DataSeeder {
         val t03Id = dao.insertSection(
             SectionEntity(
                 code = "T-03",
-                name = "Section T-03",
+                name = "Komuditi T-03",
                 address = "Rak Tools B1",
                 departmentId = toolsId,
                 description = "Display perkakas paket set & tool box"
@@ -68,7 +68,7 @@ object DataSeeder {
         val lk01Id = dao.insertSection(
             SectionEntity(
                 code = "LK-01",
-                name = "Section LK-01",
+                name = "Komuditi LK-01",
                 address = "Loker Display Utama",
                 departmentId = lockerId,
                 description = "Area display unit loker 4-6 pintu"
@@ -77,7 +77,7 @@ object DataSeeder {
         val sec01Id = dao.insertSection(
             SectionEntity(
                 code = "SEC-01",
-                name = "Section SEC-01",
+                name = "Komuditi SEC-01",
                 address = "Display CCTV & Alarm A1",
                 departmentId = secId,
                 description = "Gondola display kamera pintar & sistem akses"
@@ -86,7 +86,7 @@ object DataSeeder {
         val e03Id = dao.insertSection(
             SectionEntity(
                 code = "E-03",
-                name = "Section E-03",
+                name = "Komuditi E-03",
                 address = "Wall Bay 2",
                 departmentId = electricalId,
                 description = "Dinding display audio nirkabel & earphone TWS"
@@ -102,8 +102,6 @@ object DataSeeder {
                 sectionId = h01Id,
                 stockQuantity = 15,
                 description = "Kunci Inggris ukuran 10 inch presisi tinggi bahan chrome vanadium tahan karat.",
-                responsiblePerson = "Budi",
-                lastProcessedBy = "Administrator AZKO",
                 isActive = true
             )
         )
@@ -115,8 +113,6 @@ object DataSeeder {
                 sectionId = h02Id,
                 stockQuantity = 20,
                 description = "Tang kombinasi heavy duty dengan pegangan ergonomis karet anti slip.",
-                responsiblePerson = "Budi",
-                lastProcessedBy = "Administrator AZKO",
                 isActive = true
             )
         )
@@ -128,8 +124,6 @@ object DataSeeder {
                 sectionId = t01Id,
                 stockQuantity = 35,
                 description = "Obeng plus magnetik ujung presisi untuk pekerjaan mekanik & elektrik.",
-                responsiblePerson = "Budi",
-                lastProcessedBy = "Administrator AZKO",
                 isActive = true
             )
         )
@@ -141,8 +135,6 @@ object DataSeeder {
                 sectionId = t03Id,
                 stockQuantity = 12,
                 description = "Satu set obeng presisi bolak-balik isi 6 pcs serbaguna.",
-                responsiblePerson = "Budi",
-                lastProcessedBy = "Administrator AZKO",
                 isActive = true
             )
         )
@@ -154,8 +146,6 @@ object DataSeeder {
                 sectionId = lk01Id,
                 stockQuantity = 4,
                 description = "Loker kantor penyimpanan arsip dan barang material pelat baja tebal.",
-                responsiblePerson = "Budi",
-                lastProcessedBy = "Administrator AZKO",
                 isActive = true
             )
         )
@@ -167,8 +157,6 @@ object DataSeeder {
                 sectionId = sec01Id,
                 stockQuantity = 8,
                 description = "Kamera keamanan outdoor/indoor night vision deteksi gerakan pintar AI.",
-                responsiblePerson = "Budi",
-                lastProcessedBy = "Administrator AZKO",
                 isActive = true
             )
         )
@@ -180,8 +168,6 @@ object DataSeeder {
                 sectionId = e03Id,
                 stockQuantity = 25,
                 description = "True Wireless Stereo Bluetooth Earbuds dengan peredam bising aktif.",
-                responsiblePerson = "Krishna",
-                lastProcessedBy = "Administrator AZKO",
                 isActive = true
             )
         )

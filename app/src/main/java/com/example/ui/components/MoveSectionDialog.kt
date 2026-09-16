@@ -107,7 +107,7 @@ fun MoveSectionDialog(
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "PINDAH SECTION",
+                            text = "PINDAH KOMUDITI",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
@@ -160,7 +160,7 @@ fun MoveSectionDialog(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
-                    text = "Pilih Section Tujuan:",
+                    text = "Pilih Komuditi Tujuan:",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
@@ -203,9 +203,9 @@ fun MoveSectionDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Section List
+                // Komuditi List
                 Text(
-                    text = "Pilih Kode Section:",
+                    text = "Pilih Kode Komuditi:",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -214,7 +214,7 @@ fun MoveSectionDialog(
 
                 if (availableSections.isEmpty()) {
                     Text(
-                        text = "Tidak ada Section di departemen ini.",
+                        text = "Tidak ada Komuditi di departemen ini.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(vertical = 8.dp)
@@ -269,7 +269,7 @@ fun MoveSectionDialog(
                                             }
                                         }
                                         Text(
-                                            text = "${sec.name} • ${sec.address}",
+                                            text = "Alamat: ${sec.address}",
                                             fontSize = 12.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )

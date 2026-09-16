@@ -43,7 +43,7 @@ sealed class Screen(val title: String, val icon: ImageVector, val tag: String) {
     object Home : Screen("Beranda", Icons.Default.Home, "nav_home")
     object DataEntry : Screen("Pendataan", Icons.Default.QrCodeScanner, "nav_data_entry")
     object Products : Screen("Katalog", Icons.Default.Inventory2, "nav_products")
-    object Sections : Screen("Section", Icons.Default.Layers, "nav_sections")
+    object Sections : Screen("Komuditi", Icons.Default.Layers, "nav_sections")
     object DataTransfer : Screen("Data", Icons.Default.ImportExport, "nav_data")
 }
 

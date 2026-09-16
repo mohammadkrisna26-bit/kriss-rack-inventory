@@ -72,6 +72,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import android.graphics.Bitmap
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -80,10 +81,13 @@ import coil.compose.AsyncImage
 import com.example.data.local.entity.SectionEntity
 import com.example.data.local.model.ProductWithLocation
 import com.example.ui.components.BarcodeScannerDialog
+import com.example.ui.components.DuplicateArticleDialog
 import com.example.ui.components.ImageDetailDialog
 import com.example.ui.components.MoveSectionDialog
+import com.example.ui.components.PhotoSourcePickerDialog
 import com.example.ui.components.ProductCard
 import com.example.ui.components.ProductDetailDialog
+import com.example.ui.components.ProductImageSlotItem
 import com.example.ui.viewmodel.InventoryViewModel
 import kotlinx.coroutines.delay
 
@@ -103,6 +107,7 @@ fun DataEntryScreen(
     val allProducts by viewModel.allProducts.collectAsState()
 
     val duplicateArticle by viewModel.duplicateArticleFound.collectAsState()
+    val duplicatePrompt by viewModel.duplicateArticlePrompt.collectAsState()
     val successMessage by viewModel.entrySuccessMessage.collectAsState()
     val isShowingNewForm by viewModel.isShowingNewProductForm.collectAsState()
 
@@ -111,6 +116,9 @@ fun DataEntryScreen(
     val rapidStock by viewModel.rapidInputStock.collectAsState()
     val rapidDesc by viewModel.rapidInputDescription.collectAsState()
     val rapidImageUri by viewModel.rapidInputImageUri.collectAsState()
+    val rapidImageUri2 by viewModel.rapidInputImageUri2.collectAsState()
+    val rapidImageUri3 by viewModel.rapidInputImageUri3.collectAsState()
+    var activeSlotForPicker by remember { mutableStateOf<Int?>(null) }
 
     // Filter products in this active section
     val sectionProducts = remember(allProducts, entrySecId) {
@@ -144,8 +152,34 @@ fun DataEntryScreen(
     ) { uri: Uri? ->
         if (uri != null) {
             viewModel.persistImage(uri) { savedPath ->
-                viewModel.setRapidImageUri(savedPath)
+                when (activeSlotForPicker) {
+                    1 -> viewModel.setRapidImageUri(savedPath)
+                    2 -> viewModel.setRapidImageUri2(savedPath)
+                    3 -> viewModel.setRapidImageUri3(savedPath)
+                }
             }
+        }
+    }
+
+    val takePictureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap: Bitmap? ->
+        if (bitmap != null) {
+            viewModel.persistBitmap(bitmap) { savedPath ->
+                when (activeSlotForPicker) {
+                    1 -> viewModel.setRapidImageUri(savedPath)
+                    2 -> viewModel.setRapidImageUri2(savedPath)
+                    3 -> viewModel.setRapidImageUri3(savedPath)
+                }
+            }
+        }
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            takePictureLauncher.launch(null)
         }
     }
 
@@ -268,7 +302,7 @@ fun DataEntryScreen(
                                     color = MaterialTheme.colorScheme.onPrimaryContainer
                                 )
                                 Text(
-                                    text = sec.name,
+                                    text = "Kode Komuditi: ${sec.code}",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                                 )
@@ -340,98 +374,7 @@ fun DataEntryScreen(
             }
         }
 
-        // WARNING ALERT: DUPLICATE ARTICLE ALREADY IN ANOTHER SECTION
-        if (duplicateArticle != null) {
-            item {
-                val exist = duplicateArticle!!
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                    border = androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.error)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Warning,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Artikel Sudah Terdaftar!",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onErrorContainer
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Text(
-                            text = "Artikel '${exist.product.articleNumber}' (${exist.product.name}) sudah terdaftar di:",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
-                        ) {
-                            Text(
-                                text = "${exist.departmentName} • Section ${exist.sectionCode} (${exist.sectionAddress})",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        // Action options as requested: [ BATAL ] [ PINDAHKAN KE SECTION INI ] [ LIHAT DATA ]
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedButton(
-                                onClick = { viewModel.clearDuplicatePrompt() },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text("BATAL")
-                            }
-
-                            Button(
-                                onClick = {
-                                    viewModel.moveExistingToCurrentSection(exist)
-                                },
-                                modifier = Modifier.weight(1.4f),
-                                shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.primary
-                                )
-                            ) {
-                                Text("PINDAHKAN KE SINI", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
-
-                            OutlinedButton(
-                                onClick = { selectedProductForDetail = exist },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text("LIHAT DATA", fontSize = 11.sp)
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        // (Duplicate notification is shown via pop-up DuplicateArticleDialog)
 
         // PRIMARY RAPID INPUT SECTION
         if (entrySecId != null && entrySecId!! > 0 && duplicateArticle == null) {
@@ -459,21 +402,6 @@ fun DataEntryScreen(
                         Spacer(modifier = Modifier.height(14.dp))
 
                         // Article input row with SCAN BARCODE button
-                        if (!canManageDept) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f),
-                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                            ) {
-                                Text(
-                                    text = "Akses Dibatasi: Anda tidak ditugaskan untuk departemen ini. Pemrosesan dinonaktifkan.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                    modifier = Modifier.padding(8.dp)
-                                )
-                            }
-                        }
-
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
@@ -656,60 +584,45 @@ fun DataEntryScreen(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        // Photo Picker Row
+                        // 3 Slots for Product Images
+                        Text(
+                            text = "Foto Produk (Maksimal 3 Gambar)",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "Slot yang belum digunakan tetap kosong. Pengguna tidak wajib mengisi semua slot.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(60.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(MaterialTheme.colorScheme.surface),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (!rapidImageUri.isNullOrEmpty()) {
-                                    AsyncImage(
-                                        model = rapidImageUri,
-                                        contentDescription = null,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                } else {
-                                    Icon(
-                                        Icons.Default.Image,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                OutlinedButton(
-                                    onClick = {
-                                        photoPickerLauncher.launch(
-                                            androidx.activity.result.PickVisualMediaRequest(
-                                                ActivityResultContracts.PickVisualMedia.ImageOnly
-                                            )
-                                        )
-                                    },
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(if (rapidImageUri != null) "Ganti Foto" else "Upload Foto Produk (Opsional)", fontSize = 12.sp)
-                                }
-                                if (rapidImageUri != null) {
-                                    TextButton(
-                                        onClick = { viewModel.setRapidImageUri(null) },
-                                        contentPadding = PaddingValues(0.dp)
-                                    ) {
-                                        Text("Hapus Foto", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
-                                    }
-                                }
-                            }
+                            ProductImageSlotItem(
+                                slotNumber = 1,
+                                imageUri = rapidImageUri,
+                                modifier = Modifier.weight(1f),
+                                onClick = { activeSlotForPicker = 1 },
+                                onDelete = { viewModel.setRapidImageUri(null) }
+                            )
+                            ProductImageSlotItem(
+                                slotNumber = 2,
+                                imageUri = rapidImageUri2,
+                                modifier = Modifier.weight(1f),
+                                onClick = { activeSlotForPicker = 2 },
+                                onDelete = { viewModel.setRapidImageUri2(null) }
+                            )
+                            ProductImageSlotItem(
+                                slotNumber = 3,
+                                imageUri = rapidImageUri3,
+                                modifier = Modifier.weight(1f),
+                                onClick = { activeSlotForPicker = 3 },
+                                onDelete = { viewModel.setRapidImageUri3(null) }
+                            )
                         }
 
                         Spacer(modifier = Modifier.height(16.dp))
@@ -751,7 +664,7 @@ fun DataEntryScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Barang di Section Ini (${sectionProducts.size})",
+                        text = "Barang di Komuditi Ini (${sectionProducts.size})",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -768,7 +681,7 @@ fun DataEntryScreen(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                     ) {
                         Text(
-                            text = "Belum ada barang di Section ini. Silakan mulai ketik atau scan nomor artikel di atas.",
+                            text = "Belum ada barang di Komuditi ini. Silakan mulai ketik atau scan nomor artikel di atas.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(20.dp)
@@ -782,7 +695,7 @@ fun DataEntryScreen(
                         canEdit = viewModel.canUserManageDepartment(item.product.departmentId),
                         onDetailClick = { selectedProductForDetail = item },
                         onMoveClick = { selectedProductForMove = item },
-                        onImageClick = { selectedImageForPreview = Pair(item.product.imageUri, item.product.name) },
+                        onImageClick = { selectedImageForPreview = Pair(item.product.primaryImageUri, item.product.name) },
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                     )
                 }
@@ -790,7 +703,7 @@ fun DataEntryScreen(
         }
     }
 
-    // --- QUICK SECTION SWITCHER MODAL BOTTOM SHEET ---
+    // --- QUICK KOMUDITI SWITCHER MODAL BOTTOM SHEET ---
     if (showSectionPickerSheet) {
         ModalBottomSheet(
             onDismissRequest = { showSectionPickerSheet = false },
@@ -802,12 +715,12 @@ fun DataEntryScreen(
                     .padding(horizontal = 20.dp, vertical = 10.dp)
             ) {
                 Text(
-                    text = "PILIH SECTION DISPLAY",
+                    text = "PILIH KOMUDITI DISPLAY",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Pilih Section untuk berpindah lokasi pendataan barang tanpa keluar",
+                    text = "Pilih Komuditi untuk berpindah lokasi pendataan barang tanpa keluar",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -834,7 +747,7 @@ fun DataEntryScreen(
                         if (deptSections.isEmpty()) {
                             item {
                                 Text(
-                                    text = "Belum ada section di departemen ini",
+                                    text = "Belum ada komuditi di departemen ini",
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(vertical = 4.dp)
@@ -866,21 +779,15 @@ fun DataEntryScreen(
                                         Column {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 Text(
-                                                    text = sec.code,
+                                                    text = "Komuditi ${sec.code}",
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 15.sp,
                                                     color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
                                                     else MaterialTheme.colorScheme.onSurface
                                                 )
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(
-                                                    text = sec.name,
-                                                    fontSize = 13.sp,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
                                             }
                                             Text(
-                                                text = sec.address,
+                                                text = "Alamat: ${sec.address}",
                                                 fontSize = 12.sp,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -934,8 +841,8 @@ fun DataEntryScreen(
                     selectedProductForDetail = null
                 }
             },
-            onViewLargePhotoClick = {
-                selectedImageForPreview = Pair(item.product.imageUri, item.product.name)
+            onViewLargePhotoClick = { uri ->
+                selectedImageForPreview = Pair(uri, item.product.name)
             },
             onUpdateStock = { newStock ->
                 viewModel.updateProductStock(item.product.id, newStock) { success ->
@@ -968,6 +875,52 @@ fun DataEntryScreen(
             imageUri = uri,
             title = title,
             onDismissRequest = { selectedImageForPreview = null }
+        )
+    }
+
+    // DUPLICATE ARTICLE POP-UP DIALOG
+    duplicatePrompt?.let { prompt ->
+        DuplicateArticleDialog(
+            prompt = prompt,
+            onDismissRequest = { viewModel.dismissDuplicatePrompt() },
+            onKeepDifferentLocation = { viewModel.proceedWithDifferentLocation() },
+            onMergeWithExisting = { targetProductId, addedStock ->
+                viewModel.mergeStockWithExisting(targetProductId, addedStock)
+            }
+        )
+    }
+
+    // PHOTO SOURCE PICKER (CAMERA VS GALLERY)
+    if (activeSlotForPicker != null) {
+        val slot = activeSlotForPicker!!
+        val currentUri = when (slot) {
+            1 -> rapidImageUri
+            2 -> rapidImageUri2
+            3 -> rapidImageUri3
+            else -> null
+        }
+        PhotoSourcePickerDialog(
+            title = "Pilih Gambar $slot",
+            hasExistingPhoto = !currentUri.isNullOrEmpty(),
+            onDismissRequest = { activeSlotForPicker = null },
+            onCameraClick = {
+                cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+            },
+            onGalleryClick = {
+                photoPickerLauncher.launch(
+                    androidx.activity.result.PickVisualMediaRequest(
+                        ActivityResultContracts.PickVisualMedia.ImageOnly
+                    )
+                )
+            },
+            onDeletePhotoClick = {
+                when (slot) {
+                    1 -> viewModel.setRapidImageUri(null)
+                    2 -> viewModel.setRapidImageUri2(null)
+                    3 -> viewModel.setRapidImageUri3(null)
+                }
+                activeSlotForPicker = null
+            }
         )
     }
 }

@@ -66,16 +66,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.SectionEntity
 import com.example.data.local.model.ProductWithLocation
-import com.example.ui.components.ActivityLogDialog
 import com.example.ui.components.BarcodeScannerDialog
-import com.example.ui.components.CloudStatusBar
 import com.example.ui.components.EditProductDialog
 import com.example.ui.components.ImageDetailDialog
-import com.example.ui.components.LoginDialog
 import com.example.ui.components.MoveSectionDialog
 import com.example.ui.components.ProductCard
 import com.example.ui.components.ProductDetailDialog
-import com.example.ui.components.UserManagementDialog
 import com.example.ui.viewmodel.InventoryViewModel
 
 @Composable
@@ -95,15 +91,7 @@ fun HomeScreen(
     val departments by viewModel.allDepartments.collectAsState()
     val sections by viewModel.allSections.collectAsState()
 
-    val currentUser by viewModel.currentUser.collectAsState()
-    val cloudStatus by viewModel.cloudStatus.collectAsState()
-    val allUsers by viewModel.allUsers.collectAsState()
-    val activityLogs by viewModel.recentActivityLogs.collectAsState()
-
     var showScannerDialog by remember { mutableStateOf(false) }
-    var showLoginDialog by remember { mutableStateOf(false) }
-    var showUserManagementDialog by remember { mutableStateOf(false) }
-    var showActivityLogDialog by remember { mutableStateOf(false) }
     var selectedProductForDetail by remember { mutableStateOf<ProductWithLocation?>(null) }
     var selectedProductForMove by remember { mutableStateOf<ProductWithLocation?>(null) }
     var selectedProductForEdit by remember { mutableStateOf<ProductWithLocation?>(null) }
@@ -139,13 +127,13 @@ fun HomeScreen(
                     ) {
                         Column {
                             Text(
-                                text = "AZKO Rack Inventory",
+                                text = "Inventory THSR by.kriss",
                                 style = MaterialTheme.typography.headlineSmall,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = Color.White
                             )
                             Text(
-                                text = "Pendataan Barang & Lokasi Section Display Toko",
+                                text = "Pendataan Barang & Lokasi Komuditi Display Toko",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color.White.copy(alpha = 0.85f)
                             )
@@ -178,7 +166,7 @@ fun HomeScreen(
                                 onValueChange = { viewModel.setSearchQuery(it) },
                                 placeholder = {
                                     Text(
-                                        "Cari Artikel, Nama, atau Section...",
+                                        "Cari Artikel, Nama, atau Komuditi...",
                                         fontSize = 13.sp,
                                         maxLines = 1
                                     )
@@ -225,316 +213,439 @@ fun HomeScreen(
             }
         }
 
-        // Cloud Sync Status & User Profile Bar
-        item {
-            CloudStatusBar(
-                cloudStatus = cloudStatus,
-                currentUser = currentUser,
-                onOpenLogs = { showActivityLogDialog = true },
-                onOpenUserManagement = { showUserManagementDialog = true },
-                onSwitchAccount = { showLoginDialog = true },
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
-        }
-
-        // Mode Pendataan Cepat Hero Card
-        item {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 14.dp)
-                    .clickable { onNavigateToDataEntry() },
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
-            ) {
-                Row(
+        // --- SEARCH RESULTS (Immediately below search/scan bar when active) ---
+        if (searchQuery.isNotBlank()) {
+            item {
+                Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(18.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
                 ) {
-                    Box(
+                    Row(
                         modifier = Modifier
-                            .size(54.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary),
-                        contentAlignment = Alignment.Center
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.QrCodeScanner,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(28.dp)
-                        )
+                        Column {
+                            Text(
+                                text = "Hasil Pencarian: \"$searchQuery\"",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                text = "${searchResults.size} barang ditemukan",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                            )
+                        }
+                        IconButton(
+                            onClick = { viewModel.setSearchQuery("") },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Clear,
+                                contentDescription = "Tutup Pencarian",
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
                     }
+                }
+            }
 
-                    Spacer(modifier = Modifier.width(14.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "MODE PENDATAAN",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                        Text(
-                            text = "Mulai pendataan barang di Section rak display dengan input cepat & barcode scanner",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                        )
+            if (searchResults.isEmpty()) {
+                item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "Barang '$searchQuery' tidak ditemukan di Komuditi mana pun.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Button(
+                                onClick = { showAddNewProductDialog = true },
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Tambah Barang Baru")
+                            }
+                        }
                     }
-
-                    Icon(
-                        imageVector = Icons.Default.ArrowForward,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(24.dp)
+                }
+            } else {
+                items(searchResults, key = { it.product.id }) { item ->
+                    ProductCard(
+                        productWithLocation = item,
+                        canEdit = viewModel.canUserManageDepartment(item.product.departmentId),
+                        onDetailClick = { selectedProductForDetail = item },
+                        onEditClick = { selectedProductForEdit = item },
+                        onMoveClick = { selectedProductForMove = item },
+                        onImageClick = { selectedImageForPreview = Pair(item.product.imageUri, item.product.name) },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp)
                     )
                 }
             }
-        }
+        } else {
+            // --- REGULAR DASHBOARD (When search query is blank) ---
 
-        // Section Terakhir Digunakan (Quick Resume Card)
-        if (lastUsedSection != null) {
+            // 100% Offline Status & Local Storage Badge (Pure Offline, No Activity Log button)
             item {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    shape = RoundedCornerShape(16.dp),
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    )
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.secondaryContainer
-                            ) {
-                                Text(
-                                    text = lastUsedSection!!.section.code,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = "Section Terakhir Digunakan",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = "${lastUsedSection!!.section.name} • ${lastUsedSection!!.section.address}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-
-                        Button(
-                            onClick = {
-                                viewModel.selectEntrySection(lastUsedSection!!.section)
-                                onNavigateToDataEntry()
-                            },
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("LANJUT", fontSize = 12.sp)
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF2E7D32))
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "100% Offline Lokal (Room DB)",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "Data tersimpan permanen di perangkat Android",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                            )
                         }
                     }
                 }
             }
-        }
 
-        // Dashboard Summary Stats Grid
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-            ) {
-                Text(
-                    text = "Statistik Gudang & Rak Display",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+            // Mode Pendataan Cepat Hero Card
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 14.dp)
+                        .clickable { onNavigateToDataEntry() },
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
                 ) {
-                    StatCard(
-                        title = "Total Produk",
-                        value = stats.totalProducts.toString(),
-                        icon = Icons.Default.Inventory2,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.weight(1f),
-                        onClick = onNavigateToProducts
-                    )
-                    StatCard(
-                        title = "Total Stok",
-                        value = "${stats.totalStock} Unit",
-                        icon = Icons.Default.Layers,
-                        color = Color(0xFFD97706),
-                        modifier = Modifier.weight(1f),
-                        onClick = onNavigateToProducts
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    StatCard(
-                        title = "Artikel Unik",
-                        value = stats.totalArticles.toString(),
-                        icon = Icons.Default.Layers,
-                        color = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.weight(1f),
-                        onClick = onNavigateToProducts
-                    )
-                    StatCard(
-                        title = "Section Display",
-                        value = stats.totalSections.toString(),
-                        icon = Icons.Default.LocationOn,
-                        color = Color(0xFF7C3AED),
-                        modifier = Modifier.weight(1f),
-                        onClick = onNavigateToSections
-                    )
-                }
-
-                if (stats.productsWithoutPhoto > 0) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Surface(
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onNavigateToProducts() },
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+                            .padding(18.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Box(
+                            modifier = Modifier
+                                .size(54.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary),
+                            contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Default.NoPhotography,
+                                imageVector = Icons.Default.QrCodeScanner,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(18.dp)
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+
+                        Spacer(modifier = Modifier.width(14.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "${stats.productsWithoutPhoto} produk belum memiliki foto",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                                fontWeight = FontWeight.Medium
+                                text = "MODE PENDATAAN",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
+                            Text(
+                                text = "Mulai pendataan barang di Komuditi rak display dengan input cepat & barcode scanner",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                            )
+                        }
+
+                        Icon(
+                            imageVector = Icons.Default.ArrowForward,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+            }
+
+            // Komuditi Terakhir Digunakan (Quick Resume Card)
+            if (lastUsedSection != null) {
+                item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.secondaryContainer
+                                ) {
+                                    Text(
+                                        text = lastUsedSection!!.section.code,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "Komuditi Terakhir Digunakan",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = "${lastUsedSection!!.section.name} • ${lastUsedSection!!.section.address}",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+
+                            Button(
+                                onClick = {
+                                    viewModel.selectEntrySection(lastUsedSection!!.section)
+                                    onNavigateToDataEntry()
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("LANJUT", fontSize = 12.sp)
+                            }
                         }
                     }
                 }
             }
-        }
 
-        // Section Populer / Cepat
-        if (recentSections.isNotEmpty()) {
+            // Dashboard Summary Stats Grid
             item {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 6.dp)
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
+                    Text(
+                        text = "Statistik Gudang & Rak Display",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = "Pilih Section Cepat",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Lihat Semua",
-                            style = MaterialTheme.typography.labelMedium,
+                        StatCard(
+                            title = "Total Produk",
+                            value = stats.totalProducts.toString(),
+                            icon = Icons.Default.Inventory2,
                             color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.clickable { onNavigateToSections() }
+                            modifier = Modifier.weight(1f),
+                            onClick = onNavigateToProducts
+                        )
+                        StatCard(
+                            title = "Total Stok",
+                            value = "${stats.totalStock} Unit",
+                            icon = Icons.Default.Layers,
+                            color = Color(0xFFD97706),
+                            modifier = Modifier.weight(1f),
+                            onClick = onNavigateToProducts
                         )
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 16.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        recentSections.forEach { secStats ->
-                            Surface(
-                                modifier = Modifier.clickable {
-                                    viewModel.selectEntrySection(secStats.section)
-                                    onNavigateToDataEntry()
-                                },
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surface,
-                                shadowElevation = 1.dp
+                        StatCard(
+                            title = "Artikel Unik",
+                            value = stats.totalArticles.toString(),
+                            icon = Icons.Default.Layers,
+                            color = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.weight(1f),
+                            onClick = onNavigateToProducts
+                        )
+                        StatCard(
+                            title = "Komuditi Display",
+                            value = stats.totalSections.toString(),
+                            icon = Icons.Default.LocationOn,
+                            color = Color(0xFF7C3AED),
+                            modifier = Modifier.weight(1f),
+                            onClick = onNavigateToSections
+                        )
+                    }
+
+                    if (stats.productsWithoutPhoto > 0) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onNavigateToProducts() },
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                Icon(
+                                    imageVector = Icons.Default.NoPhotography,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "${stats.productsWithoutPhoto} produk belum memiliki foto",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Komuditi Populer / Cepat
+            if (recentSections.isNotEmpty()) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Pilih Komuditi Cepat",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Lihat Semua",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.clickable { onNavigateToSections() }
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            recentSections.forEach { secStats ->
+                                Surface(
+                                    modifier = Modifier.clickable {
+                                        viewModel.selectEntrySection(secStats.section)
+                                        onNavigateToDataEntry()
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surface,
+                                    shadowElevation = 1.dp
                                 ) {
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = MaterialTheme.colorScheme.primaryContainer
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(
-                                            text = secStats.section.code,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Column {
-                                        Text(
-                                            text = secStats.section.address,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                        Text(
-                                            text = "${secStats.productCount} barang",
-                                            fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = MaterialTheme.colorScheme.primaryContainer
+                                        ) {
+                                            Text(
+                                                text = secStats.section.code,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column {
+                                            Text(
+                                                text = secStats.section.address,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Text(
+                                                text = "${secStats.productCount} barang",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -542,24 +653,22 @@ fun HomeScreen(
                     }
                 }
             }
-        }
 
-        // Live Search Results or Recent Items
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = if (searchQuery.isNotBlank()) "Hasil Pencarian (${searchResults.size})" else "Katalog Barang Rak",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
+            // Katalog Barang Rak (Recent)
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Katalog Barang Rak",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
 
-                if (searchQuery.isBlank()) {
                     Text(
                         text = "Kelola Semua",
                         style = MaterialTheme.typography.labelMedium,
@@ -568,53 +677,52 @@ fun HomeScreen(
                     )
                 }
             }
-        }
 
-        if (searchResults.isEmpty()) {
-            item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(
+            if (searchResults.isEmpty()) {
+                item {
+                    Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                     ) {
-                        Text(
-                            text = if (searchQuery.isNotBlank()) "Barang '$searchQuery' tidak ditemukan di Section mana pun."
-                            else "Belum ada produk terdaftar.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Button(
-                            onClick = { showAddNewProductDialog = true },
-                            shape = RoundedCornerShape(10.dp)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Tambah Barang Baru")
+                            Text(
+                                text = "Belum ada produk terdaftar.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Button(
+                                onClick = { showAddNewProductDialog = true },
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Tambah Barang Baru")
+                            }
                         }
                     }
                 }
-            }
-        } else {
-            val displayList = if (searchQuery.isNotBlank()) searchResults else searchResults.take(6)
-            items(displayList, key = { it.product.id }) { item ->
-                ProductCard(
-                    productWithLocation = item,
-                    canEdit = viewModel.canUserManageDepartment(item.product.departmentId),
-                    onDetailClick = { selectedProductForDetail = item },
-                    onEditClick = { selectedProductForEdit = item },
-                    onMoveClick = { selectedProductForMove = item },
-                    onImageClick = { selectedImageForPreview = Pair(item.product.imageUri, item.product.name) },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp)
-                )
+            } else {
+                val displayList = searchResults.take(6)
+                items(displayList, key = { it.product.id }) { item ->
+                    ProductCard(
+                        productWithLocation = item,
+                        canEdit = viewModel.canUserManageDepartment(item.product.departmentId),
+                        onDetailClick = { selectedProductForDetail = item },
+                        onEditClick = { selectedProductForEdit = item },
+                        onMoveClick = { selectedProductForMove = item },
+                        onImageClick = { selectedImageForPreview = Pair(item.product.primaryImageUri, item.product.name) },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp)
+                    )
+                }
             }
         }
     }
@@ -655,8 +763,8 @@ fun HomeScreen(
                     selectedProductForDetail = null
                 }
             },
-            onViewLargePhotoClick = {
-                selectedImageForPreview = Pair(item.product.imageUri, item.product.name)
+            onViewLargePhotoClick = { uri ->
+                selectedImageForPreview = Pair(uri, item.product.name)
             },
             onUpdateStock = { newStock ->
                 viewModel.updateProductStock(item.product.id, newStock) { success ->
@@ -690,7 +798,7 @@ fun HomeScreen(
             departments = departments,
             sections = sections,
             onDismissRequest = { selectedProductForEdit = null },
-            onSave = { article, name, deptId, secId, stockQuantity, imageUri, desc, isActive ->
+            onSave = { article, name, deptId, secId, stockQuantity, img1, img2, img3, desc, isActive ->
                 viewModel.updateProduct(
                     id = item.product.id,
                     article = article,
@@ -698,7 +806,9 @@ fun HomeScreen(
                     departmentId = deptId,
                     sectionId = secId,
                     stockQuantity = stockQuantity,
-                    imageUri = imageUri,
+                    imageUri = img1,
+                    imageUri2 = img2,
+                    imageUri3 = img3,
                     description = desc,
                     isActive = isActive
                 ) { success ->
@@ -707,6 +817,9 @@ fun HomeScreen(
             },
             onPersistImage = { uri, callback ->
                 viewModel.persistImage(uri, callback)
+            },
+            onPersistBitmap = { bmp, callback ->
+                viewModel.persistBitmap(bmp, callback)
             }
         )
     }
@@ -719,14 +832,16 @@ fun HomeScreen(
             departments = departments,
             sections = sections,
             onDismissRequest = { showAddNewProductDialog = false },
-            onSave = { article, name, deptId, secId, stockQuantity, imageUri, desc, _ ->
+            onSave = { article, name, deptId, secId, stockQuantity, img1, img2, img3, desc, _ ->
                 viewModel.createProduct(
                     articleNumber = article,
                     name = name,
                     departmentId = deptId,
                     sectionId = secId,
                     stockQuantity = stockQuantity,
-                    imageUri = imageUri,
+                    imageUri = img1,
+                    imageUri2 = img2,
+                    imageUri3 = img3,
                     description = desc
                 ) { success ->
                     if (success) {
@@ -736,6 +851,9 @@ fun HomeScreen(
             },
             onPersistImage = { uri, callback ->
                 viewModel.persistImage(uri, callback)
+            },
+            onPersistBitmap = { bmp, callback ->
+                viewModel.persistBitmap(bmp, callback)
             }
         )
     }
@@ -746,39 +864,6 @@ fun HomeScreen(
             imageUri = uri,
             title = title,
             onDismissRequest = { selectedImageForPreview = null }
-        )
-    }
-
-    // Login Dialog
-    if (showLoginDialog) {
-        LoginDialog(
-            onDismissRequest = { showLoginDialog = false },
-            onLogin = { email, pass, callback ->
-                viewModel.login(email, pass, callback)
-            }
-        )
-    }
-
-    // Cloud User Management Dialog (Admin Only)
-    if (showUserManagementDialog) {
-        UserManagementDialog(
-            users = allUsers,
-            departments = departments,
-            onDismissRequest = { showUserManagementDialog = false },
-            onCreateEmployee = { name, email, pass, role, deptIds, deptNames, callback ->
-                viewModel.createEmployee(name, email, pass, role, deptIds, deptNames, callback)
-            },
-            onUpdateEmployee = { updatedUser, callback ->
-                viewModel.updateEmployee(updatedUser, callback)
-            }
-        )
-    }
-
-    // Cloud Activity Log Dialog
-    if (showActivityLogDialog) {
-        ActivityLogDialog(
-            logs = activityLogs,
-            onDismissRequest = { showActivityLogDialog = false }
         )
     }
 }

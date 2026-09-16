@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "AZKO Rack Inventory"
+rootProject.name = "Inventory THSR by.kriss"
 
 include(":app")

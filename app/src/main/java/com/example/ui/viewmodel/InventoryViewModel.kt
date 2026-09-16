@@ -2,23 +2,19 @@ package com.example.ui.viewmodel
 
 import android.app.Application
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.data.firebase.CloudConnectionStatus
-import com.example.data.firebase.FirestoreSyncManager
 import com.example.data.local.AppDatabase
 import com.example.data.local.DataSeeder
-import com.example.data.local.entity.ActivityLogEntity
 import com.example.data.local.entity.DepartmentEntity
 import com.example.data.local.entity.SectionEntity
-import com.example.data.local.entity.SectionHistoryEntity
 import com.example.data.local.model.DashboardStats
 import com.example.data.local.model.DepartmentWithStats
 import com.example.data.local.model.ProductWithLocation
 import com.example.data.local.model.SectionWithStats
-import com.example.data.model.AppUser
-import com.example.data.repository.AuthRepository
+import com.example.data.repository.BackupRestoreResult
 import com.example.data.repository.InventoryRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -34,34 +30,34 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.File
+import java.io.InputStream
 
 enum class PhotoFilter { ALL, WITH_PHOTO, WITHOUT_PHOTO }
 enum class ProductSortOption { ARTICLE_ASC, ARTICLE_DESC, NAME_ASC, DATE_DESC }
 
+data class DuplicateArticlePrompt(
+    val articleNumber: String,
+    val existingLocations: List<ProductWithLocation>,
+    val targetSectionId: Long,
+    val targetSectionCode: String,
+    val targetSectionAddress: String
+)
+
 class InventoryViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = AppDatabase.getInstance(application)
-    val syncManager = FirestoreSyncManager(application, db.inventoryDao())
-    val authRepository = AuthRepository(application, db.inventoryDao(), syncManager)
-    val repository = InventoryRepository(db.inventoryDao(), application, syncManager)
+    val repository = InventoryRepository(db.inventoryDao(), application)
     private val sharedPrefs = application.getSharedPreferences("azko_inventory_prefs", Context.MODE_PRIVATE)
 
     private val _userMessage = MutableSharedFlow<String>()
     val userMessage: SharedFlow<String> = _userMessage.asSharedFlow()
-
-    val currentUser: StateFlow<AppUser?> = authRepository.currentUser
-    val cloudStatus: StateFlow<CloudConnectionStatus> = syncManager.connectionStatus
-    val allUsers: StateFlow<List<AppUser>> = authRepository.allUsers
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-    val recentActivityLogs: StateFlow<List<ActivityLogEntity>> = db.inventoryDao().getRecentActivityLogs(100)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // --- INITIALIZATION ---
     init {
         viewModelScope.launch {
             DataSeeder.seedIfEmpty(db.inventoryDao())
             loadLastUsedSection()
-            authRepository.seedDefaultUsersIfEmpty()
         }
     }
 
@@ -110,15 +106,15 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
     val selectedDeptFilter = MutableStateFlow<Long?>(null)
     val selectedSectionFilter = MutableStateFlow<Long?>(null)
     val photoFilter = MutableStateFlow(PhotoFilter.ALL)
-    val sortOption = MutableStateFlow(ProductSortOption.DATE_DESC)
+    val sortOption = MutableStateFlow(ProductSortOption.ARTICLE_ASC)
 
     val filteredProducts: StateFlow<List<ProductWithLocation>> = combine(
-        allProducts,
+        searchResults,
         selectedDeptFilter,
         selectedSectionFilter,
         photoFilter,
         sortOption
-    ) { products, deptId, secId, photoOpt, sortOpt ->
+    ) { products, deptId, secId, photo, sort ->
         var list = products
 
         if (deptId != null) {
@@ -127,21 +123,21 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
         if (secId != null) {
             list = list.filter { it.product.sectionId == secId }
         }
-        when (photoOpt) {
-            PhotoFilter.WITH_PHOTO -> list = list.filter { !it.product.imageUri.isNullOrEmpty() }
-            PhotoFilter.WITHOUT_PHOTO -> list = list.filter { it.product.imageUri.isNullOrEmpty() }
-            PhotoFilter.ALL -> Unit
+        list = when (photo) {
+            PhotoFilter.ALL -> list
+            PhotoFilter.WITH_PHOTO -> list.filter { it.product.hasPhoto }
+            PhotoFilter.WITHOUT_PHOTO -> list.filter { !it.product.hasPhoto }
         }
-        when (sortOpt) {
-            ProductSortOption.ARTICLE_ASC -> list = list.sortedBy { it.product.articleNumber }
-            ProductSortOption.ARTICLE_DESC -> list = list.sortedByDescending { it.product.articleNumber }
-            ProductSortOption.NAME_ASC -> list = list.sortedBy { it.product.name.lowercase() }
-            ProductSortOption.DATE_DESC -> list = list.sortedByDescending { it.product.updatedAt }
+
+        when (sort) {
+            ProductSortOption.ARTICLE_ASC -> list.sortedBy { it.product.articleNumber }
+            ProductSortOption.ARTICLE_DESC -> list.sortedByDescending { it.product.articleNumber }
+            ProductSortOption.NAME_ASC -> list.sortedBy { it.product.name.lowercase() }
+            ProductSortOption.DATE_DESC -> list.sortedByDescending { it.product.updatedAt }
         }
-        list
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // --- RAPID ENTRY / MODE PENDATAAN STATE ---
+    // --- DATA ENTRY (RAPID INVENTORY) STATE ---
     private val _entryDepartmentId = MutableStateFlow<Long?>(null)
     val entryDepartmentId: StateFlow<Long?> = _entryDepartmentId.asStateFlow()
 
@@ -151,12 +147,16 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
     private val _lastUsedSectionInfo = MutableStateFlow<SectionWithStats?>(null)
     val lastUsedSectionInfo: StateFlow<SectionWithStats?> = _lastUsedSectionInfo.asStateFlow()
 
-    private val _entrySuccessMessage = MutableStateFlow<String?>(null)
-    val entrySuccessMessage: StateFlow<String?> = _entrySuccessMessage.asStateFlow()
-
     private val _duplicateArticleFound = MutableStateFlow<ProductWithLocation?>(null)
     val duplicateArticleFound: StateFlow<ProductWithLocation?> = _duplicateArticleFound.asStateFlow()
 
+    private val _duplicateArticlePrompt = MutableStateFlow<DuplicateArticlePrompt?>(null)
+    val duplicateArticlePrompt: StateFlow<DuplicateArticlePrompt?> = _duplicateArticlePrompt.asStateFlow()
+
+    private val _entrySuccessMessage = MutableStateFlow<String?>(null)
+    val entrySuccessMessage: StateFlow<String?> = _entrySuccessMessage.asStateFlow()
+
+    // Form states for rapid article entry
     private val _rapidInputArticle = MutableStateFlow("")
     val rapidInputArticle: StateFlow<String> = _rapidInputArticle.asStateFlow()
 
@@ -171,6 +171,12 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val _rapidInputImageUri = MutableStateFlow<String?>(null)
     val rapidInputImageUri: StateFlow<String?> = _rapidInputImageUri.asStateFlow()
+
+    private val _rapidInputImageUri2 = MutableStateFlow<String?>(null)
+    val rapidInputImageUri2: StateFlow<String?> = _rapidInputImageUri2.asStateFlow()
+
+    private val _rapidInputImageUri3 = MutableStateFlow<String?>(null)
+    val rapidInputImageUri3: StateFlow<String?> = _rapidInputImageUri3.asStateFlow()
 
     private val _isShowingNewProductForm = MutableStateFlow(false)
     val isShowingNewProductForm: StateFlow<Boolean> = _isShowingNewProductForm.asStateFlow()
@@ -239,8 +245,52 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
         _rapidInputImageUri.value = uri
     }
 
+    fun setRapidImageUri2(uri: String?) {
+        _rapidInputImageUri2.value = uri
+    }
+
+    fun setRapidImageUri3(uri: String?) {
+        _rapidInputImageUri3.value = uri
+    }
+
     fun clearDuplicatePrompt() {
         _duplicateArticleFound.value = null
+        _duplicateArticlePrompt.value = null
+    }
+
+    fun dismissDuplicatePrompt() {
+        _duplicateArticlePrompt.value = null
+        _duplicateArticleFound.value = null
+        _rapidInputArticle.value = ""
+    }
+
+    fun proceedWithDifferentLocation() {
+        val prompt = _duplicateArticlePrompt.value ?: return
+        val sample = prompt.existingLocations.firstOrNull()
+        _rapidInputArticle.value = prompt.articleNumber
+        _rapidInputName.value = sample?.product?.name ?: ""
+        _rapidInputStock.value = "1"
+        _rapidInputDescription.value = sample?.product?.description ?: ""
+        _rapidInputImageUri.value = sample?.product?.imageUri
+        _rapidInputImageUri2.value = sample?.product?.imageUri2
+        _rapidInputImageUri3.value = sample?.product?.imageUri3
+        _duplicateArticlePrompt.value = null
+        _duplicateArticleFound.value = null
+        _isShowingNewProductForm.value = true
+    }
+
+    fun mergeStockWithExisting(productId: Long, addedStock: Int) {
+        viewModelScope.launch {
+            val result = repository.mergeProductStock(productId, addedStock)
+            result.onSuccess { newTotal ->
+                _entrySuccessMessage.value = "✓ Stok berhasil digabungkan! Total stok sekarang: $newTotal unit"
+                _duplicateArticlePrompt.value = null
+                _duplicateArticleFound.value = null
+                _rapidInputArticle.value = ""
+            }.onFailure { err ->
+                emitMessage(err.message ?: "Gagal menggabungkan stok")
+            }
+        }
     }
 
     fun cancelNewProductForm() {
@@ -250,6 +300,8 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
         _rapidInputStock.value = "1"
         _rapidInputDescription.value = ""
         _rapidInputImageUri.value = null
+        _rapidInputImageUri2.value = null
+        _rapidInputImageUri3.value = null
     }
 
     // Process article entry (typed or scanned)
@@ -259,20 +311,26 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
 
         val curSecId = _entrySectionId.value
         if (curSecId == null || curSecId <= 0) {
-            emitMessage("Pilih Departemen dan Section terlebih dahulu!")
+            emitMessage("Pilih Departemen dan Komuditi terlebih dahulu!")
             return
         }
+        val sec = currentSelectedSection.value?.section
 
         viewModelScope.launch {
-            // Check if product exists by article number
-            val existing = repository.getProductByArticle(trimmed)
-            if (existing != null) {
-                // Article already registered!
-                _duplicateArticleFound.value = existing
-                _rapidInputArticle.value = existing.product.articleNumber
+            // Check if article already exists in any location
+            val existingList = repository.getAllLocationsForArticle(trimmed)
+            if (existingList.isNotEmpty()) {
+                _duplicateArticleFound.value = existingList.first()
+                _duplicateArticlePrompt.value = DuplicateArticlePrompt(
+                    articleNumber = trimmed,
+                    existingLocations = existingList,
+                    targetSectionId = curSecId,
+                    targetSectionCode = sec?.code ?: "",
+                    targetSectionAddress = sec?.address ?: ""
+                )
             } else {
-                // Product does not exist -> Open rapid entry form with article prefilled
                 _duplicateArticleFound.value = null
+                _duplicateArticlePrompt.value = null
                 _rapidInputArticle.value = trimmed
                 _rapidInputName.value = ""
                 _rapidInputStock.value = "1"
@@ -283,70 +341,7 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun canUserManageDepartment(deptId: Long): Boolean {
-        val user = currentUser.value ?: return false
-        return user.canManageDepartment(deptId)
-    }
-
-    // --- AUTHENTICATION & EMPLOYEE MANAGEMENT ---
-    fun login(email: String, pass: String, onResult: (Boolean, String) -> Unit) {
-        viewModelScope.launch {
-            val res = authRepository.login(email, pass)
-            res.onSuccess {
-                emitMessage("Selamat datang, ${it.fullName}")
-                onResult(true, "")
-            }.onFailure {
-                emitMessage(it.message ?: "Login gagal")
-                onResult(false, it.message ?: "Login gagal")
-            }
-        }
-    }
-
-    fun logout() {
-        authRepository.logout()
-        emitMessage("Anda telah keluar.")
-    }
-
-    fun createEmployee(
-        fullName: String,
-        email: String,
-        password: String,
-        role: String,
-        assignedDepartmentIds: List<Long>,
-        assignedDepartmentNames: List<String>,
-        onResult: (Boolean, String) -> Unit
-    ) {
-        viewModelScope.launch {
-            val res = authRepository.createEmployee(
-                fullName, email, password, role, assignedDepartmentIds, assignedDepartmentNames
-            )
-            res.onSuccess {
-                emitMessage("Karyawan '${it.fullName}' berhasil ditambahkan.")
-                onResult(true, "")
-            }.onFailure {
-                emitMessage(it.message ?: "Gagal menambahkan karyawan")
-                onResult(false, it.message ?: "Gagal")
-            }
-        }
-    }
-
-    fun updateEmployee(
-        user: AppUser,
-        onResult: (Boolean, String) -> Unit
-    ) {
-        viewModelScope.launch {
-            val res = authRepository.updateEmployee(
-                user.id, user.fullName, user.role, user.assignedDepartmentIds, user.assignedDepartmentNames, user.isActive
-            )
-            res.onSuccess {
-                emitMessage("Data karyawan '${user.fullName}' berhasil disimpan.")
-                onResult(true, "")
-            }.onFailure {
-                emitMessage(it.message ?: "Gagal memperbarui karyawan")
-                onResult(false, it.message ?: "Gagal")
-            }
-        }
-    }
+    fun canUserManageDepartment(deptId: Long): Boolean = true
 
     fun saveRapidProduct() {
         val article = _rapidInputArticle.value.trim()
@@ -354,13 +349,10 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
         val stockStr = _rapidInputStock.value.trim()
         val desc = _rapidInputDescription.value.trim()
         val image = _rapidInputImageUri.value
+        val image2 = _rapidInputImageUri2.value
+        val image3 = _rapidInputImageUri3.value
         val deptId = _entryDepartmentId.value ?: return
         val secId = _entrySectionId.value ?: return
-
-        if (!canUserManageDepartment(deptId)) {
-            emitMessage("Anda tidak memiliki tanggung jawab pada Departemen ini. Produk tidak dapat ditambahkan.")
-            return
-        }
 
         if (article.isEmpty()) {
             emitMessage("Nomor Artikel tidak boleh kosong")
@@ -372,15 +364,11 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
         }
         val stock = stockStr.toIntOrNull()
         if (stock == null || stock < 0) {
-            emitMessage("Jumlah Stok harus berupa angka bulat dan tidak boleh negatif (minimal 0)")
+            emitMessage("Jumlah Stok harus berupa angka bulat dan minimal 0")
             return
         }
 
         viewModelScope.launch {
-            val user = currentUser.value
-            val processor = user?.fullName ?: "Karyawan"
-            val pj = authRepository.getResponsibleNamesForDepartment(deptId)
-
             val result = repository.createProduct(
                 articleNumber = article,
                 name = name,
@@ -388,33 +376,21 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
                 sectionId = secId,
                 stockQuantity = stock,
                 imageUri = image,
-                description = desc,
-                responsiblePerson = pj,
-                lastProcessedBy = processor
+                imageUri2 = image2,
+                imageUri3 = image3,
+                description = desc
             )
             result.onSuccess {
-                val dept = repository.getDepartmentById(deptId)
-                if (user != null) {
-                    val secCode = currentSelectedSection.value?.section?.code ?: "Section"
-                    syncManager.logActivity(
-                        action = "TAMBAH_PRODUK",
-                        articleNumber = article,
-                        productName = name,
-                        departmentName = dept?.name ?: "",
-                        details = "Ditambahkan ke Section $secCode (Stok: $stock)",
-                        user = user
-                    )
-                }
                 _entrySuccessMessage.value = "✓ Artikel $article berhasil disimpan (Stok: $stock)"
-                // Clear input form and reset to ready mode ONLY after success
                 _isShowingNewProductForm.value = false
                 _rapidInputArticle.value = ""
                 _rapidInputName.value = ""
                 _rapidInputStock.value = "1"
                 _rapidInputDescription.value = ""
                 _rapidInputImageUri.value = null
+                _rapidInputImageUri2.value = null
+                _rapidInputImageUri3.value = null
             }.onFailure { err ->
-                // Keep form open so user doesn't lose input, and show error
                 emitMessage(err.message ?: "Gagal menyimpan artikel")
             }
         }
@@ -422,35 +398,15 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun moveExistingToCurrentSection(existing: ProductWithLocation) {
         val curSecId = _entrySectionId.value ?: return
-        val curDeptId = _entryDepartmentId.value ?: existing.product.departmentId
-
-        if (!canUserManageDepartment(existing.product.departmentId) || !canUserManageDepartment(curDeptId)) {
-            emitMessage("Anda tidak memiliki izin memindahkan produk di luar departemen tanggung jawab Anda.")
-            return
-        }
 
         viewModelScope.launch {
-            val user = currentUser.value
-            val processor = user?.fullName ?: "Karyawan"
             val result = repository.moveProductSection(
                 productId = existing.product.id,
                 targetSectionId = curSecId,
-                lastProcessedBy = processor,
-                notes = "Dipindahkan saat Mode Pendataan oleh $processor"
+                notes = "Dipindahkan saat Mode Pendataan"
             )
             result.onSuccess {
-                if (user != null) {
-                    val targetSecCode = currentSelectedSection.value?.section?.code ?: "Section"
-                    syncManager.logActivity(
-                        action = "PINDAH_SECTION",
-                        articleNumber = existing.product.articleNumber,
-                        productName = existing.product.name,
-                        departmentName = existing.departmentName,
-                        details = "${existing.sectionCode} → $targetSecCode",
-                        user = user
-                    )
-                }
-                _entrySuccessMessage.value = "✓ Artikel ${existing.product.articleNumber} berhasil dipindahkan ke Section ini"
+                _entrySuccessMessage.value = "✓ Artikel ${existing.product.articleNumber} berhasil dipindahkan ke Komuditi ini"
                 _duplicateArticleFound.value = null
                 _rapidInputArticle.value = ""
             }.onFailure { err ->
@@ -467,15 +423,11 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
         sectionId: Long,
         stockQuantity: Int = 0,
         imageUri: String? = null,
+        imageUri2: String? = null,
+        imageUri3: String? = null,
         description: String = "",
         onComplete: (Boolean) -> Unit = {}
     ) {
-        if (!canUserManageDepartment(departmentId)) {
-            emitMessage("Anda tidak memiliki tanggung jawab pada Departemen ini. Produk tidak dapat ditambahkan.")
-            onComplete(false)
-            return
-        }
-
         if (stockQuantity < 0) {
             emitMessage("Jumlah Stok tidak boleh negatif")
             onComplete(false)
@@ -483,10 +435,6 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
         }
 
         viewModelScope.launch {
-            val user = currentUser.value
-            val processor = user?.fullName ?: "Karyawan"
-            val pj = authRepository.getResponsibleNamesForDepartment(departmentId)
-
             val res = repository.createProduct(
                 articleNumber = articleNumber,
                 name = name,
@@ -494,22 +442,11 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
                 sectionId = sectionId,
                 stockQuantity = stockQuantity,
                 imageUri = imageUri,
-                description = description,
-                responsiblePerson = pj,
-                lastProcessedBy = processor
+                imageUri2 = imageUri2,
+                imageUri3 = imageUri3,
+                description = description
             )
             res.onSuccess {
-                val dept = repository.getDepartmentById(departmentId)
-                if (user != null) {
-                    syncManager.logActivity(
-                        action = "TAMBAH_PRODUK",
-                        articleNumber = articleNumber,
-                        productName = name,
-                        departmentName = dept?.name ?: "",
-                        details = "Produk dibuat oleh $processor (Stok: $stockQuantity)",
-                        user = user
-                    )
-                }
                 emitMessage("Produk '$name' berhasil ditambahkan")
                 onComplete(true)
             }.onFailure { err ->
@@ -529,37 +466,17 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
             }
             val targetSection = repository.getSectionById(targetSectionId)
             if (targetSection == null) {
-                emitMessage("Section tujuan tidak ditemukan")
+                emitMessage("Komuditi tujuan tidak ditemukan")
                 onComplete(false)
                 return@launch
             }
-
-            if (!canUserManageDepartment(current.product.departmentId) || !canUserManageDepartment(targetSection.departmentId)) {
-                emitMessage("Anda tidak memiliki izin memindahkan produk di luar departemen tanggung jawab Anda.")
-                onComplete(false)
-                return@launch
-            }
-
-            val user = currentUser.value
-            val processor = user?.fullName ?: "Karyawan"
 
             val res = repository.moveProductSection(
                 productId = productId,
                 targetSectionId = targetSectionId,
-                lastProcessedBy = processor,
-                notes = if (notes.isNotEmpty()) notes else "Dipindahkan oleh $processor"
+                notes = if (notes.isNotEmpty()) notes else "Dipindahkan ke ${targetSection.code}"
             )
             res.onSuccess {
-                if (user != null) {
-                    syncManager.logActivity(
-                        action = "PINDAH_SECTION",
-                        articleNumber = current.product.articleNumber,
-                        productName = current.product.name,
-                        departmentName = current.departmentName,
-                        details = "${current.sectionCode} → ${targetSection.code}",
-                        user = user
-                    )
-                }
                 emitMessage("Lokasi produk berhasil dipindahkan")
                 onComplete(true)
             }.onFailure { err ->
@@ -577,6 +494,8 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
         sectionId: Long,
         stockQuantity: Int,
         imageUri: String?,
+        imageUri2: String? = null,
+        imageUri3: String? = null,
         description: String,
         isActive: Boolean = true,
         onComplete: (Boolean) -> Unit
@@ -588,23 +507,6 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
         }
 
         viewModelScope.launch {
-            val current = repository.getProductById(id)
-            if (current == null) {
-                emitMessage("Produk tidak ditemukan")
-                onComplete(false)
-                return@launch
-            }
-
-            if (!canUserManageDepartment(current.product.departmentId) || !canUserManageDepartment(departmentId)) {
-                emitMessage("Anda tidak memiliki izin mengedit produk di luar departemen tanggung jawab Anda.")
-                onComplete(false)
-                return@launch
-            }
-
-            val user = currentUser.value
-            val processor = user?.fullName ?: "Karyawan"
-            val pj = authRepository.getResponsibleNamesForDepartment(departmentId)
-
             val res = repository.updateProduct(
                 id = id,
                 articleNumber = article,
@@ -613,22 +515,12 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
                 sectionId = sectionId,
                 stockQuantity = stockQuantity,
                 imageUri = imageUri,
+                imageUri2 = imageUri2,
+                imageUri3 = imageUri3,
                 description = description,
-                responsiblePerson = pj,
-                lastProcessedBy = processor,
                 isActive = isActive
             )
             res.onSuccess {
-                if (user != null) {
-                    syncManager.logActivity(
-                        action = "EDIT_PRODUK",
-                        articleNumber = article,
-                        productName = name,
-                        departmentName = current.departmentName,
-                        details = "Diperbarui oleh $processor (Stok: $stockQuantity)",
-                        user = user
-                    )
-                }
                 emitMessage("Produk berhasil diperbarui")
                 onComplete(true)
             }.onFailure { err ->
@@ -650,35 +542,8 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
         }
 
         viewModelScope.launch {
-            val current = repository.getProductById(productId)
-            if (current == null) {
-                emitMessage("Produk tidak ditemukan")
-                onComplete(false)
-                return@launch
-            }
-
-            if (!canUserManageDepartment(current.product.departmentId)) {
-                emitMessage("Anda tidak memiliki izin mengubah stok produk di luar departemen tanggung jawab Anda.")
-                onComplete(false)
-                return@launch
-            }
-
-            val user = currentUser.value
-            val processor = user?.fullName ?: "Karyawan"
-            val oldStock = current.product.stockQuantity
-
-            val res = repository.updateProductStock(productId, newStock, processor)
+            val res = repository.updateProductStock(productId, newStock)
             res.onSuccess {
-                if (user != null) {
-                    syncManager.logActivity(
-                        action = "UBAH_STOK",
-                        articleNumber = current.product.articleNumber,
-                        productName = current.product.name,
-                        departmentName = current.departmentName,
-                        details = "Stok diubah dari $oldStock menjadi $newStock oleh $processor",
-                        user = user
-                    )
-                }
                 emitMessage("Jumlah stok berhasil diperbarui")
                 onComplete(true)
             }.onFailure { err ->
@@ -694,34 +559,8 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun deleteProduct(productId: Long, onComplete: (Boolean) -> Unit) {
         viewModelScope.launch {
-            val current = repository.getProductById(productId)
-            if (current == null) {
-                emitMessage("Produk tidak ditemukan")
-                onComplete(false)
-                return@launch
-            }
-
-            if (!canUserManageDepartment(current.product.departmentId)) {
-                emitMessage("Anda tidak memiliki izin menghapus produk di luar departemen tanggung jawab Anda.")
-                onComplete(false)
-                return@launch
-            }
-
-            val user = currentUser.value
-            val processor = user?.fullName ?: "Karyawan"
-
             val res = repository.deleteProduct(productId)
             res.onSuccess {
-                if (user != null) {
-                    syncManager.logActivity(
-                        action = "HAPUS_PRODUK",
-                        articleNumber = current.product.articleNumber,
-                        productName = current.product.name,
-                        departmentName = current.departmentName,
-                        details = "Dihapus oleh $processor",
-                        user = user
-                    )
-                }
                 emitMessage("Produk berhasil dihapus")
                 onComplete(true)
             }.onFailure { err ->
@@ -731,7 +570,7 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    // --- SECTION ACTIONS ---
+    // --- SECTION (KOMUDITI) ACTIONS ---
     fun createSection(
         code: String,
         name: String,
@@ -743,10 +582,10 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             val res = repository.createSection(code, name, address, departmentId, description)
             res.onSuccess {
-                emitMessage("Section $code berhasil ditambahkan")
+                emitMessage("Komuditi $code berhasil ditambahkan")
                 onComplete(true)
             }.onFailure { err ->
-                emitMessage(err.message ?: "Gagal menambahkan Section")
+                emitMessage(err.message ?: "Gagal menambahkan Komuditi")
                 onComplete(false)
             }
         }
@@ -764,10 +603,10 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             val res = repository.updateSection(id, code, name, address, departmentId, description)
             res.onSuccess {
-                emitMessage("Section $code berhasil diperbarui")
+                emitMessage("Komuditi $code berhasil diperbarui")
                 onComplete(true)
             }.onFailure { err ->
-                emitMessage(err.message ?: "Gagal memperbarui Section")
+                emitMessage(err.message ?: "Gagal memperbarui Komuditi")
                 onComplete(false)
             }
         }
@@ -777,10 +616,10 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             val res = repository.deleteSection(id)
             res.onSuccess {
-                emitMessage("Section berhasil dihapus")
+                emitMessage("Komuditi berhasil dihapus")
                 onComplete(true)
             }.onFailure { err ->
-                emitMessage(err.message ?: "Gagal menghapus Section")
+                emitMessage(err.message ?: "Gagal menghapus Komuditi")
                 onComplete(false)
             }
         }
@@ -834,6 +673,29 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    // --- STANDALONE OFFLINE ZIP BACKUP & RESTORE WITH IMAGES ---
+    suspend fun createZipBackup(): File {
+        return repository.createZipBackup()
+    }
+
+    suspend fun restoreBackupStream(inputStream: InputStream): Result<BackupRestoreResult> {
+        return repository.restoreBackup(inputStream)
+    }
+
+    // --- FULL DATABASE BACKUP & RESTORE (JSON) ---
+    suspend fun createFullBackup(): String {
+        return repository.createFullBackupJson()
+    }
+
+    suspend fun restoreFullBackup(jsonString: String): Result<BackupRestoreResult> {
+        return repository.restoreFromBackupJson(jsonString)
+    }
+
+    // --- EXCEL EXPORT ---
+    suspend fun exportProductsToExcel(products: List<ProductWithLocation>): File {
+        return repository.exportProductsToExcel(products)
+    }
+
     // --- CSV IMPORT / EXPORT ---
     suspend fun parseCsv(text: String): InventoryRepository.CsvImportPreview {
         return repository.parseAndValidateCsv(text)
@@ -851,9 +713,11 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
         return repository.exportProductsToCsv(products)
     }
 
-    fun getProductHistory(productId: Long): StateFlow<List<SectionHistoryEntity>> {
-        return repository.getHistoryForProduct(productId)
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    fun persistBitmap(bitmap: Bitmap, onResult: (String) -> Unit) {
+        viewModelScope.launch {
+            val path = repository.persistBitmap(bitmap)
+            onResult(path)
+        }
     }
 
     fun emitMessage(msg: String) {

@@ -1,6 +1,7 @@
 package com.example.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -66,11 +67,15 @@ fun ProductDetailDialog(
     onChangePhotoClick: () -> Unit,
     onMoveSectionClick: () -> Unit,
     onDeleteClick: () -> Unit,
-    onViewLargePhotoClick: () -> Unit,
+    onViewLargePhotoClick: (String) -> Unit = {},
     canEdit: Boolean = true,
     onUpdateStock: ((Int) -> Unit)? = null
 ) {
     val p = productWithLocation.product
+    val images = p.allImageUris
+    var selectedImageIndex by remember { mutableStateOf(0) }
+    val validIndex = if (images.isNotEmpty()) selectedImageIndex.coerceIn(0, images.size - 1) else 0
+
     val dateFormat = remember { SimpleDateFormat("dd MMMM yyyy, HH:mm", Locale("id", "ID")) }
 
     var showDeleteConfirm by remember { mutableStateOf(false) }
@@ -113,23 +118,43 @@ fun ProductDetailDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Product Image Box
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(190.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .clickable { onViewLargePhotoClick() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (!p.imageUri.isNullOrEmpty()) {
+                // Product Images Section (never displays empty slots as images)
+                if (images.isNotEmpty()) {
+                    val activeUri = images[validIndex]
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .clickable { onViewLargePhotoClick(activeUri) },
+                        contentAlignment = Alignment.Center
+                    ) {
                         AsyncImage(
-                            model = p.imageUri,
+                            model = activeUri,
                             contentDescription = p.name,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxWidth()
                         )
+
+                        if (images.size > 1) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color.Black.copy(alpha = 0.65f),
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(8.dp)
+                            ) {
+                                Text(
+                                    text = "Foto ${validIndex + 1} dari ${images.size}",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+
                         Surface(
                             shape = RoundedCornerShape(8.dp),
                             color = Color.Black.copy(alpha = 0.6f),
@@ -144,7 +169,51 @@ fun ProductDetailDialog(
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                         }
-                    } else {
+                    }
+
+                    // Thumbnails row for multiple photos (only filled images shown)
+                    if (images.size > 1) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            images.forEachIndexed { idx, uri ->
+                                val isSelected = idx == validIndex
+                                Box(
+                                    modifier = Modifier
+                                        .size(60.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                                        .then(
+                                            if (isSelected) Modifier.border(
+                                                width = 2.dp,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                shape = RoundedCornerShape(10.dp)
+                                            ) else Modifier
+                                        )
+                                        .clickable { selectedImageIndex = idx },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    AsyncImage(
+                                        model = uri,
+                                        contentDescription = "Foto ${idx + 1}",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(160.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center
@@ -199,13 +268,8 @@ fun ProductDetailDialog(
                             }
                         }
                         DetailItem(label = "Departemen", value = productWithLocation.departmentName)
-                        DetailItem(label = "Section", value = "${productWithLocation.sectionCode} (${productWithLocation.sectionName})", isAccent = true)
-                        DetailItem(label = "Alamat Section", value = productWithLocation.sectionAddress)
-                        DetailItem(label = "Penanggung Jawab", value = p.responsiblePerson.ifEmpty { "Semua Karyawan" }, isPrimary = true)
-                        DetailItem(label = "Terakhir Diproses Oleh", value = p.lastProcessedBy.ifEmpty { "-" })
-                        if (p.lastProcessedAt > 0) {
-                            DetailItem(label = "Waktu Pemrosesan", value = dateFormat.format(Date(p.lastProcessedAt)))
-                        }
+                        DetailItem(label = "Kode Komuditi", value = productWithLocation.sectionCode, isAccent = true)
+                        DetailItem(label = "Alamat Komuditi", value = productWithLocation.sectionAddress)
                         if (p.description.isNotBlank()) {
                             DetailItem(label = "Deskripsi", value = p.description)
                         }
@@ -275,7 +339,7 @@ fun ProductDetailDialog(
                         ) {
                             Icon(Icons.Default.DriveFileMove, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("PINDAH SECTION")
+                            Text("PINDAH KOMUDITI")
                         }
 
                         Button(

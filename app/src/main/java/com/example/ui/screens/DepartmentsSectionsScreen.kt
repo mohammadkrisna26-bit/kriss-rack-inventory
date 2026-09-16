@@ -97,7 +97,7 @@ fun DepartmentsSectionsScreen(
             ) {
                 Icon(
                     Icons.Default.Add,
-                    contentDescription = if (selectedTabIndex == 0) "Tambah Section" else "Tambah Departemen"
+                    contentDescription = if (selectedTabIndex == 0) "Tambah Komuditi" else "Tambah Departemen"
                 )
             }
         }
@@ -124,7 +124,7 @@ fun DepartmentsSectionsScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("SECTION (${sectionsWithStats.size})", fontWeight = FontWeight.Bold)
+                                Text("KOMUDITI (${sectionsWithStats.size})", fontWeight = FontWeight.Bold)
                             }
                         }
                     )
@@ -144,7 +144,7 @@ fun DepartmentsSectionsScreen(
 
             // Tab Content
             if (selectedTabIndex == 0) {
-                // --- SECTION LIST ---
+                // --- KOMUDITI LIST ---
                 if (sectionsWithStats.isEmpty()) {
                     Box(
                         modifier = Modifier
@@ -154,7 +154,7 @@ fun DepartmentsSectionsScreen(
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = "Belum ada Section terdaftar.",
+                                text = "Belum ada Komuditi terdaftar.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -162,7 +162,7 @@ fun DepartmentsSectionsScreen(
                             Button(onClick = { showAddSectionDialog = true }) {
                                 Icon(Icons.Default.Add, contentDescription = null)
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Tambah Section Baru")
+                                Text("Tambah Komuditi Baru")
                             }
                         }
                     }
@@ -257,11 +257,11 @@ fun DepartmentsSectionsScreen(
     // Delete Section Confirm Dialog
     sectionToDelete?.let { secStats ->
         ConfirmDialog(
-            title = "Hapus Section",
+            title = "Hapus Komuditi",
             message = if (secStats.productCount > 0) {
-                "PERINGATAN: Section '${secStats.section.code}' (${secStats.section.address}) masih memiliki ${secStats.productCount} produk. Pindahkan atau hapus semua produk terlebih dahulu."
+                "PERINGATAN: Komuditi '${secStats.section.code}' (${secStats.section.address}) masih memiliki ${secStats.productCount} produk. Pindahkan atau hapus semua produk terlebih dahulu."
             } else {
-                "Apakah Anda yakin ingin menghapus Section '${secStats.section.code}' (${secStats.section.address})?"
+                "Apakah Anda yakin ingin menghapus Komuditi '${secStats.section.code}' (${secStats.section.address})?"
             },
             confirmText = if (secStats.productCount > 0) "TUTUP" else "HAPUS",
             isDestructive = secStats.productCount == 0,
@@ -309,7 +309,7 @@ fun DepartmentsSectionsScreen(
         ConfirmDialog(
             title = "Hapus Departemen",
             message = if (deptStats.sectionCount > 0 || deptStats.productCount > 0) {
-                "PERINGATAN: Departemen '${deptStats.department.name}' masih memiliki ${deptStats.sectionCount} Section dan ${deptStats.productCount} produk terkait. Hapus Section dan produk terkait terlebih dahulu."
+                "PERINGATAN: Departemen '${deptStats.department.name}' masih memiliki ${deptStats.sectionCount} Komuditi dan ${deptStats.productCount} produk terkait. Hapus Komuditi dan produk terkait terlebih dahulu."
             } else {
                 "Apakah Anda yakin ingin menghapus Departemen '${deptStats.department.name}'?"
             },
@@ -368,7 +368,7 @@ private fun SectionCard(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "${item.departmentName} • ${item.section.name}",
+                            text = "Departemen: ${item.departmentName}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -418,10 +418,10 @@ private fun SectionCard(
 
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     IconButton(onClick = onEdit) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit Section", tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Default.Edit, contentDescription = "Edit Komuditi", tint = MaterialTheme.colorScheme.primary)
                     }
                     IconButton(onClick = onDelete) {
-                        Icon(Icons.Default.Delete, contentDescription = "Hapus Section", tint = MaterialTheme.colorScheme.error)
+                        Icon(Icons.Default.Delete, contentDescription = "Hapus Komuditi", tint = MaterialTheme.colorScheme.error)
                     }
                 }
             }
@@ -479,7 +479,7 @@ private fun DepartmentCard(
                     color = MaterialTheme.colorScheme.primaryContainer
                 ) {
                     Text(
-                        text = "${item.sectionCount} Section",
+                        text = "${item.sectionCount} Komuditi",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,

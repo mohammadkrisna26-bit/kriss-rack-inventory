@@ -6,12 +6,9 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
-import com.example.data.local.entity.ActivityLogEntity
 import com.example.data.local.entity.DepartmentEntity
 import com.example.data.local.entity.ProductEntity
 import com.example.data.local.entity.SectionEntity
-import com.example.data.local.entity.SectionHistoryEntity
-import com.example.data.local.entity.UserEntity
 import com.example.data.local.model.DepartmentWithStats
 import com.example.data.local.model.ProductWithLocation
 import com.example.data.local.model.SectionWithStats
@@ -88,6 +85,12 @@ interface InventoryDao {
     @Query("SELECT * FROM sections WHERE LOWER(code) = LOWER(:code) LIMIT 1")
     suspend fun getSectionByCode(code: String): SectionEntity?
 
+    @Query("SELECT * FROM sections WHERE LOWER(address) = LOWER(:address) LIMIT 1")
+    suspend fun getSectionByAddress(address: String): SectionEntity?
+
+    @Query("SELECT * FROM sections WHERE LOWER(code) = LOWER(:code) AND LOWER(address) = LOWER(:address) LIMIT 1")
+    suspend fun getSectionByCodeAndAddress(code: String, address: String): SectionEntity?
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertSection(section: SectionEntity): Long
 
@@ -141,6 +144,34 @@ interface InventoryDao {
         LIMIT 1
     """)
     suspend fun getProductById(id: Long): ProductWithLocation?
+
+    @Query("""
+        SELECT p.*,
+            d.name AS departmentName,
+            s.code AS sectionCode,
+            s.name AS sectionName,
+            s.address AS sectionAddress
+        FROM products p
+        INNER JOIN departments d ON p.departmentId = d.id
+        INNER JOIN sections s ON p.sectionId = s.id
+        WHERE p.articleNumber = :articleNumber
+        ORDER BY p.updatedAt DESC
+    """)
+    suspend fun getAllLocationsForArticle(articleNumber: String): List<ProductWithLocation>
+
+    @Query("""
+        SELECT p.*,
+            d.name AS departmentName,
+            s.code AS sectionCode,
+            s.name AS sectionName,
+            s.address AS sectionAddress
+        FROM products p
+        INNER JOIN departments d ON p.departmentId = d.id
+        INNER JOIN sections s ON p.sectionId = s.id
+        WHERE p.articleNumber = :articleNumber AND p.sectionId = :sectionId
+        LIMIT 1
+    """)
+    suspend fun getProductByArticleAndSection(articleNumber: String, sectionId: Long): ProductWithLocation?
 
     @Query("""
         SELECT p.*,
@@ -210,13 +241,12 @@ interface InventoryDao {
 
     @Query("""
         UPDATE products 
-        SET stockQuantity = :newStock, lastProcessedBy = :processedBy, lastProcessedAt = :updatedAt, updatedAt = :updatedAt 
+        SET stockQuantity = :newStock, updatedAt = :updatedAt 
         WHERE id = :productId
     """)
     suspend fun updateProductStock(
         productId: Long,
         newStock: Int,
-        processedBy: String,
         updatedAt: Long = System.currentTimeMillis()
     ): Int
 
@@ -231,16 +261,6 @@ interface InventoryDao {
         newDepartmentId: Long,
         updatedAt: Long = System.currentTimeMillis()
     ): Int
-
-    // --- SECTION HISTORY ---
-    @Insert
-    suspend fun insertSectionHistory(history: SectionHistoryEntity): Long
-
-    @Query("SELECT * FROM section_histories WHERE productId = :productId ORDER BY movedAt DESC")
-    fun getHistoryByProduct(productId: Long): Flow<List<SectionHistoryEntity>>
-
-    @Query("SELECT * FROM section_histories ORDER BY movedAt DESC LIMIT :limit")
-    fun getRecentHistories(limit: Int = 20): Flow<List<SectionHistoryEntity>>
 
     // --- DASHBOARD COUNTS ---
     @Query("SELECT COUNT(*) FROM products")
@@ -258,32 +278,34 @@ interface InventoryDao {
     @Query("SELECT COUNT(*) FROM sections")
     fun getTotalSectionsCount(): Flow<Int>
 
-    @Query("SELECT COUNT(*) FROM products WHERE imageUri IS NULL OR imageUri = ''")
+    @Query("SELECT COUNT(*) FROM products WHERE (imageUri IS NULL OR imageUri = '') AND (imageUri2 IS NULL OR imageUri2 = '') AND (imageUri3 IS NULL OR imageUri3 = '')")
     fun getProductsWithoutPhotoCount(): Flow<Int>
 
-    // --- USERS ---
-    @Query("SELECT * FROM users ORDER BY fullName ASC")
-    fun getAllUsers(): Flow<List<UserEntity>>
+    // --- BULK BACKUP & RESTORE ---
+    @Query("SELECT * FROM departments ORDER BY id ASC")
+    suspend fun getAllDepartmentsList(): List<DepartmentEntity>
 
-    @Query("SELECT * FROM users WHERE id = :id LIMIT 1")
-    suspend fun getUserById(id: String): UserEntity?
+    @Query("SELECT * FROM sections ORDER BY id ASC")
+    suspend fun getAllSectionsList(): List<SectionEntity>
 
-    @Query("SELECT * FROM users WHERE LOWER(email) = LOWER(:email) LIMIT 1")
-    suspend fun getUserByEmail(email: String): UserEntity?
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertUser(user: UserEntity)
-
-    @Update
-    suspend fun updateUser(user: UserEntity): Int
-
-    @Delete
-    suspend fun deleteUser(user: UserEntity): Int
-
-    // --- ACTIVITY LOGS ---
-    @Query("SELECT * FROM activity_logs ORDER BY timestamp DESC LIMIT :limit")
-    fun getRecentActivityLogs(limit: Int = 100): Flow<List<ActivityLogEntity>>
+    @Query("SELECT * FROM products ORDER BY id ASC")
+    suspend fun getAllProductsList(): List<ProductEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertActivityLog(log: ActivityLogEntity)
+    suspend fun insertDepartments(departments: List<DepartmentEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSections(sections: List<SectionEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertProducts(products: List<ProductEntity>)
+
+    @Query("DELETE FROM products")
+    suspend fun clearProducts()
+
+    @Query("DELETE FROM sections")
+    suspend fun clearSections()
+
+    @Query("DELETE FROM departments")
+    suspend fun clearDepartments()
 }

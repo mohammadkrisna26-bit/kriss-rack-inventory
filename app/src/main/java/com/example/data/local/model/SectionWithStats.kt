@@ -8,4 +8,8 @@ data class SectionWithStats(
     val section: SectionEntity,
     val departmentName: String,
     val productCount: Int
-)
+) {
+    val komuditi: SectionEntity get() = section
+}
+
+typealias KomuditiWithStats = SectionWithStats

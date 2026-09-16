@@ -1,31 +1,47 @@
 package com.example.data.repository
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
-import com.example.data.firebase.FirestoreSyncManager
 import com.example.data.local.dao.InventoryDao
 import com.example.data.local.entity.DepartmentEntity
 import com.example.data.local.entity.ProductEntity
 import com.example.data.local.entity.SectionEntity
-import com.example.data.local.entity.SectionHistoryEntity
 import com.example.data.local.model.DashboardStats
 import com.example.data.local.model.DepartmentWithStats
 import com.example.data.local.model.ProductWithLocation
 import com.example.data.local.model.SectionWithStats
+import com.example.util.BackupManager
+import com.example.util.ExcelExporter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+data class BackupRestoreResult(
+    val departmentCount: Int,
+    val sectionCount: Int,
+    val productCount: Int,
+    val historyCount: Int = 0,
+    val imageCount: Int = 0
+) {
+    val departmentsRestored: Int get() = departmentCount
+    val sectionsRestored: Int get() = sectionCount
+    val productsRestored: Int get() = productCount
+    val imagesRestored: Int get() = imageCount
+}
+
 class InventoryRepository(
     private val dao: InventoryDao,
-    private val context: Context,
-    private val syncManager: FirestoreSyncManager? = null
+    private val context: Context
 ) {
 
     // --- DEPARTMENTS ---
@@ -42,7 +58,6 @@ class InventoryRepository(
         if (existing != null) return@withContext Result.failure(IllegalArgumentException("Departemen '$trimmed' sudah ada"))
         val dept = DepartmentEntity(name = trimmed, description = description.trim())
         val id = dao.insertDepartment(dept)
-        syncManager?.syncDepartmentToCloud(dept.copy(id = id))
         Result.success(id)
     }
 
@@ -56,14 +71,13 @@ class InventoryRepository(
         val current = dao.getDepartmentById(id) ?: return@withContext Result.failure(IllegalArgumentException("Departemen tidak ditemukan"))
         val updated = current.copy(name = trimmed, description = description.trim())
         dao.updateDepartment(updated)
-        syncManager?.syncDepartmentToCloud(updated)
         Result.success(Unit)
     }
 
     suspend fun deleteDepartment(id: Long): Result<Unit> = withContext(Dispatchers.IO) {
         val sectionCount = dao.countSectionsByDepartment(id)
         if (sectionCount > 0) {
-            return@withContext Result.failure(IllegalStateException("Tidak dapat menghapus departemen: masih memiliki $sectionCount Section terkait."))
+            return@withContext Result.failure(IllegalStateException("Tidak dapat menghapus departemen: masih memiliki $sectionCount Komuditi terkait."))
         }
         val productCount = dao.countProductsByDepartment(id)
         if (productCount > 0) {
@@ -74,7 +88,7 @@ class InventoryRepository(
         Result.success(Unit)
     }
 
-    // --- SECTIONS ---
+    // --- SECTIONS (KOMUDITI) ---
     val allSections: Flow<List<SectionEntity>> = dao.getAllSections()
     val sectionsWithStats: Flow<List<SectionWithStats>> = dao.getSectionsWithStats()
     val recentSections: Flow<List<SectionWithStats>> = dao.getRecentSectionsWithStats(5)
@@ -84,22 +98,22 @@ class InventoryRepository(
 
     suspend fun createSection(
         code: String,
-        name: String,
+        name: String = "",
         address: String,
         departmentId: Long,
         description: String
     ): Result<Long> = withContext(Dispatchers.IO) {
         val trimmedCode = code.trim().uppercase(Locale.getDefault())
-        val trimmedName = name.trim().ifEmpty { "Section $trimmedCode" }
         val trimmedAddress = address.trim()
+        val trimmedName = name.trim().ifEmpty { "Komuditi $trimmedCode" }
 
-        if (trimmedCode.isEmpty()) return@withContext Result.failure(IllegalArgumentException("Kode Section tidak boleh kosong"))
-        if (trimmedAddress.isEmpty()) return@withContext Result.failure(IllegalArgumentException("Alamat Section tidak boleh kosong"))
+        if (trimmedCode.isEmpty()) return@withContext Result.failure(IllegalArgumentException("Kode Komuditi tidak boleh kosong"))
+        if (trimmedAddress.isEmpty()) return@withContext Result.failure(IllegalArgumentException("Alamat Komuditi tidak boleh kosong"))
         if (departmentId <= 0) return@withContext Result.failure(IllegalArgumentException("Departemen wajib dipilih"))
 
-        val existing = dao.getSectionByCode(trimmedCode)
-        if (existing != null) {
-            return@withContext Result.failure(IllegalArgumentException("Kode Section '$trimmedCode' sudah digunakan"))
+        val existingAddress = dao.getSectionByAddress(trimmedAddress)
+        if (existingAddress != null) {
+            return@withContext Result.failure(IllegalArgumentException("Alamat Komuditi '$trimmedAddress' sudah terdaftar"))
         }
 
         val section = SectionEntity(
@@ -112,32 +126,31 @@ class InventoryRepository(
             updatedAt = System.currentTimeMillis()
         )
         val id = dao.insertSection(section)
-        syncManager?.syncSectionToCloud(section.copy(id = id))
         Result.success(id)
     }
 
     suspend fun updateSection(
         id: Long,
         code: String,
-        name: String,
+        name: String = "",
         address: String,
         departmentId: Long,
         description: String
     ): Result<Unit> = withContext(Dispatchers.IO) {
         val trimmedCode = code.trim().uppercase(Locale.getDefault())
-        val trimmedName = name.trim().ifEmpty { "Section $trimmedCode" }
         val trimmedAddress = address.trim()
+        val trimmedName = name.trim().ifEmpty { "Komuditi $trimmedCode" }
 
-        if (trimmedCode.isEmpty()) return@withContext Result.failure(IllegalArgumentException("Kode Section tidak boleh kosong"))
-        if (trimmedAddress.isEmpty()) return@withContext Result.failure(IllegalArgumentException("Alamat Section tidak boleh kosong"))
+        if (trimmedCode.isEmpty()) return@withContext Result.failure(IllegalArgumentException("Kode Komuditi tidak boleh kosong"))
+        if (trimmedAddress.isEmpty()) return@withContext Result.failure(IllegalArgumentException("Alamat Komuditi tidak boleh kosong"))
         if (departmentId <= 0) return@withContext Result.failure(IllegalArgumentException("Departemen wajib dipilih"))
 
-        val existing = dao.getSectionByCode(trimmedCode)
-        if (existing != null && existing.id != id) {
-            return@withContext Result.failure(IllegalArgumentException("Kode Section '$trimmedCode' sudah digunakan oleh section lain"))
+        val existingAddress = dao.getSectionByAddress(trimmedAddress)
+        if (existingAddress != null && existingAddress.id != id) {
+            return@withContext Result.failure(IllegalArgumentException("Alamat Komuditi '$trimmedAddress' sudah terdaftar pada komuditi lain"))
         }
 
-        val current = dao.getSectionById(id) ?: return@withContext Result.failure(IllegalArgumentException("Section tidak ditemukan"))
+        val current = dao.getSectionById(id) ?: return@withContext Result.failure(IllegalArgumentException("Komuditi tidak ditemukan"))
         val updated = current.copy(
             code = trimmedCode,
             name = trimmedName,
@@ -147,16 +160,15 @@ class InventoryRepository(
             updatedAt = System.currentTimeMillis()
         )
         dao.updateSection(updated)
-        syncManager?.syncSectionToCloud(updated)
         Result.success(Unit)
     }
 
     suspend fun deleteSection(id: Long): Result<Unit> = withContext(Dispatchers.IO) {
         val productCount = dao.countProductsBySection(id)
         if (productCount > 0) {
-            return@withContext Result.failure(IllegalStateException("Tidak dapat menghapus Section ini karena masih berisi $productCount produk."))
+            return@withContext Result.failure(IllegalStateException("Tidak dapat menghapus Komuditi ini karena masih berisi $productCount produk."))
         }
-        val current = dao.getSectionById(id) ?: return@withContext Result.failure(IllegalArgumentException("Section tidak ditemukan"))
+        val current = dao.getSectionById(id) ?: return@withContext Result.failure(IllegalArgumentException("Komuditi tidak ditemukan"))
         dao.deleteSection(current)
         Result.success(Unit)
     }
@@ -168,6 +180,8 @@ class InventoryRepository(
     fun observeProductCountInSection(sectionId: Long) = dao.observeProductCountInSection(sectionId)
     suspend fun getProductById(id: Long) = dao.getProductById(id)
     suspend fun getProductByArticle(articleNumber: String) = dao.getProductByArticle(articleNumber.trim())
+    suspend fun getAllLocationsForArticle(articleNumber: String) = dao.getAllLocationsForArticle(articleNumber.trim())
+    suspend fun getProductByArticleAndSection(articleNumber: String, sectionId: Long) = dao.getProductByArticleAndSection(articleNumber.trim(), sectionId)
     suspend fun getProductByBarcodeOrArticle(barcode: String) = dao.getProductByBarcodeOrArticle(barcode.trim())
     fun searchProducts(query: String) = dao.searchProducts(query.trim())
 
@@ -178,21 +192,21 @@ class InventoryRepository(
         sectionId: Long,
         stockQuantity: Int,
         imageUri: String? = null,
-        description: String = "",
-        responsiblePerson: String = "",
-        lastProcessedBy: String = ""
+        imageUri2: String? = null,
+        imageUri3: String? = null,
+        description: String = ""
     ): Result<Long> = withContext(Dispatchers.IO) {
         val trimmedArticle = articleNumber.trim()
         val trimmedName = name.trim()
         if (trimmedArticle.isEmpty()) return@withContext Result.failure(IllegalArgumentException("Nomor Artikel wajib diisi"))
         if (trimmedName.isEmpty()) return@withContext Result.failure(IllegalArgumentException("Nama Produk wajib diisi"))
         if (departmentId <= 0) return@withContext Result.failure(IllegalArgumentException("Departemen wajib dipilih"))
-        if (sectionId <= 0) return@withContext Result.failure(IllegalArgumentException("Section wajib dipilih"))
+        if (sectionId <= 0) return@withContext Result.failure(IllegalArgumentException("Komuditi wajib dipilih"))
         if (stockQuantity < 0) return@withContext Result.failure(IllegalArgumentException("Jumlah Stok tidak boleh negatif"))
 
-        val existing = dao.getProductByArticle(trimmedArticle)
-        if (existing != null) {
-            return@withContext Result.failure(IllegalStateException("Artikel '$trimmedArticle' sudah terdaftar di Section ${existing.sectionCode}."))
+        val existingInSection = dao.getProductByArticleAndSection(trimmedArticle, sectionId)
+        if (existingInSection != null) {
+            return@withContext Result.failure(IllegalStateException("Artikel '$trimmedArticle' sudah terdaftar di Komuditi ini (${existingInSection.sectionCode}). Silakan gabungkan stok atau gunakan Komuditi lain."))
         }
 
         val now = System.currentTimeMillis()
@@ -203,16 +217,14 @@ class InventoryRepository(
             sectionId = sectionId,
             stockQuantity = stockQuantity,
             imageUri = imageUri,
+            imageUri2 = imageUri2,
+            imageUri3 = imageUri3,
             description = description.trim(),
-            responsiblePerson = responsiblePerson,
-            lastProcessedBy = lastProcessedBy,
-            lastProcessedAt = now,
             isActive = true,
             createdAt = now,
             updatedAt = now
         )
         val id = dao.insertProduct(product)
-        syncManager?.syncProductToCloud(product.copy(id = id))
         Result.success(id)
     }
 
@@ -224,9 +236,9 @@ class InventoryRepository(
         sectionId: Long,
         stockQuantity: Int,
         imageUri: String?,
+        imageUri2: String? = null,
+        imageUri3: String? = null,
         description: String,
-        responsiblePerson: String = "",
-        lastProcessedBy: String = "",
         isActive: Boolean = true
     ): Result<Unit> = withContext(Dispatchers.IO) {
         val trimmedArticle = articleNumber.trim()
@@ -235,34 +247,13 @@ class InventoryRepository(
         if (trimmedName.isEmpty()) return@withContext Result.failure(IllegalArgumentException("Nama Produk wajib diisi"))
         if (stockQuantity < 0) return@withContext Result.failure(IllegalArgumentException("Jumlah Stok tidak boleh negatif"))
 
-        val existing = dao.getProductByArticle(trimmedArticle)
-        if (existing != null && existing.product.id != id) {
-            return@withContext Result.failure(IllegalStateException("Nomor Artikel '$trimmedArticle' sudah digunakan oleh produk lain!"))
+        val existingInSection = dao.getProductByArticleAndSection(trimmedArticle, sectionId)
+        if (existingInSection != null && existingInSection.product.id != id) {
+            return@withContext Result.failure(IllegalStateException("Nomor Artikel '$trimmedArticle' sudah digunakan oleh produk lain di Komuditi ini!"))
         }
 
         val current = dao.getProductById(id) ?: return@withContext Result.failure(IllegalArgumentException("Produk tidak ditemukan"))
         val now = System.currentTimeMillis()
-
-        // If section changed, record history
-        if (current.product.sectionId != sectionId) {
-            val targetSection = dao.getSectionById(sectionId)
-            if (targetSection != null) {
-                dao.insertSectionHistory(
-                    SectionHistoryEntity(
-                        productId = id,
-                        articleNumber = trimmedArticle,
-                        productName = trimmedName,
-                        fromSectionId = current.product.sectionId,
-                        fromSectionCode = current.sectionCode,
-                        fromSectionAddress = current.sectionAddress,
-                        toSectionId = targetSection.id,
-                        toSectionCode = targetSection.code,
-                        toSectionAddress = targetSection.address,
-                        notes = "Diperbarui oleh $lastProcessedBy melalui form Edit"
-                    )
-                )
-            }
-        }
 
         val updated = current.product.copy(
             articleNumber = trimmedArticle,
@@ -271,51 +262,61 @@ class InventoryRepository(
             sectionId = sectionId,
             stockQuantity = stockQuantity,
             imageUri = imageUri,
+            imageUri2 = imageUri2,
+            imageUri3 = imageUri3,
             description = description.trim(),
-            responsiblePerson = responsiblePerson.ifEmpty { current.product.responsiblePerson },
-            lastProcessedBy = lastProcessedBy.ifEmpty { current.product.lastProcessedBy },
-            lastProcessedAt = now,
             isActive = isActive,
             updatedAt = now
         )
         dao.updateProduct(updated)
-        syncManager?.syncProductToCloud(updated)
         Result.success(Unit)
     }
 
     suspend fun updateProductStock(
         productId: Long,
-        newStock: Int,
-        lastProcessedBy: String
+        newStock: Int
     ): Result<Unit> = withContext(Dispatchers.IO) {
         if (newStock < 0) return@withContext Result.failure(IllegalArgumentException("Jumlah Stok tidak boleh negatif"))
         val current = dao.getProductById(productId) ?: return@withContext Result.failure(IllegalArgumentException("Produk tidak ditemukan"))
         val now = System.currentTimeMillis()
 
-        val rows = dao.updateProductStock(productId, newStock, lastProcessedBy, now)
+        val rows = dao.updateProductStock(productId, newStock, now)
         if (rows > 0) {
-            syncManager?.syncProductStockToCloud(current.product.articleNumber, newStock, lastProcessedBy, now)
             Result.success(Unit)
         } else {
             Result.failure(IllegalStateException("Gagal memperbarui stok di database"))
         }
     }
 
+    suspend fun mergeProductStock(
+        productId: Long,
+        additionalStock: Int
+    ): Result<Int> = withContext(Dispatchers.IO) {
+        if (additionalStock <= 0) return@withContext Result.failure(IllegalArgumentException("Tambahan stok harus lebih dari 0"))
+        val current = dao.getProductById(productId) ?: return@withContext Result.failure(IllegalArgumentException("Produk tidak ditemukan"))
+        val newStock = current.product.stockQuantity + additionalStock
+        val now = System.currentTimeMillis()
+        val rows = dao.updateProductStock(productId, newStock, now)
+        if (rows > 0) {
+            Result.success(newStock)
+        } else {
+            Result.failure(IllegalStateException("Gagal menggabungkan stok di database"))
+        }
+    }
+
     suspend fun moveProductSection(
         productId: Long,
         targetSectionId: Long,
-        lastProcessedBy: String = "",
         notes: String = ""
     ): Result<Unit> = withContext(Dispatchers.IO) {
         val current = dao.getProductById(productId) ?: return@withContext Result.failure(IllegalArgumentException("Produk tidak ditemukan"))
-        val targetSection = dao.getSectionById(targetSectionId) ?: return@withContext Result.failure(IllegalArgumentException("Section tujuan tidak ditemukan"))
+        val targetSection = dao.getSectionById(targetSectionId) ?: return@withContext Result.failure(IllegalArgumentException("Komuditi tujuan tidak ditemukan"))
 
         if (current.product.sectionId == targetSectionId) {
-            return@withContext Result.success(Unit) // already there
+            return@withContext Result.success(Unit)
         }
 
         val now = System.currentTimeMillis()
-        // Update product's section and department to target
         dao.updateProductLocation(
             productId = productId,
             newSectionId = targetSection.id,
@@ -326,40 +327,17 @@ class InventoryRepository(
         val updatedProd = current.product.copy(
             sectionId = targetSection.id,
             departmentId = targetSection.departmentId,
-            lastProcessedBy = lastProcessedBy.ifEmpty { current.product.lastProcessedBy },
-            lastProcessedAt = now,
             updatedAt = now
         )
         dao.updateProduct(updatedProd)
-        syncManager?.syncProductToCloud(updatedProd)
-
-        // Record history
-        dao.insertSectionHistory(
-            SectionHistoryEntity(
-                productId = productId,
-                articleNumber = current.product.articleNumber,
-                productName = current.product.name,
-                fromSectionId = current.product.sectionId,
-                fromSectionCode = current.sectionCode,
-                fromSectionAddress = current.sectionAddress,
-                toSectionId = targetSection.id,
-                toSectionCode = targetSection.code,
-                toSectionAddress = targetSection.address,
-                notes = if (notes.isNotEmpty()) notes else "Dipindahkan oleh $lastProcessedBy"
-            )
-        )
         Result.success(Unit)
     }
 
     suspend fun deleteProduct(productId: Long): Result<Unit> = withContext(Dispatchers.IO) {
         val current = dao.getProductById(productId) ?: return@withContext Result.failure(IllegalArgumentException("Produk tidak ditemukan"))
         dao.deleteProduct(current.product)
-        syncManager?.syncProductDeleteToCloud(current.product.articleNumber)
         Result.success(Unit)
     }
-
-    fun getHistoryForProduct(productId: Long): Flow<List<SectionHistoryEntity>> = dao.getHistoryByProduct(productId)
-    fun getRecentHistories(limit: Int = 20): Flow<List<SectionHistoryEntity>> = dao.getRecentHistories(limit)
 
     // --- DASHBOARD STATS ---
     val dashboardStats: Flow<DashboardStats> = combine(
@@ -398,11 +376,182 @@ class InventoryRepository(
         }
     }
 
+    suspend fun persistBitmap(bitmap: Bitmap): String = withContext(Dispatchers.IO) {
+        try {
+            val imagesDir = File(context.filesDir, "images").apply { if (!exists()) mkdirs() }
+            val fileName = "prod_${System.currentTimeMillis()}_${(1000..9999).random()}.jpg"
+            val destFile = File(imagesDir, fileName)
+            FileOutputStream(destFile).use { output ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 85, output)
+            }
+            destFile.absolutePath
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
+    // --- STANDALONE OFFLINE ZIP BACKUP & RESTORE WITH IMAGES ---
+    suspend fun createZipBackup(): File {
+        return BackupManager.createZipBackup(context, dao)
+    }
+
+    suspend fun restoreBackup(inputStream: InputStream): Result<BackupRestoreResult> {
+        return BackupManager.restoreBackup(context, dao, inputStream)
+    }
+
+    // --- FULL JSON BACKUP & RESTORE ---
+    suspend fun createFullBackupJson(): String = withContext(Dispatchers.IO) {
+        val departments = dao.getAllDepartmentsList()
+        val sections = dao.getAllSectionsList()
+        val products = dao.getAllProductsList()
+
+        val root = JSONObject()
+        root.put("version", 2)
+        root.put("appName", "Inventaris Toko Offline")
+        root.put("backupDate", System.currentTimeMillis())
+
+        val deptArray = JSONArray()
+        for (d in departments) {
+            val obj = JSONObject()
+            obj.put("id", d.id)
+            obj.put("name", d.name)
+            obj.put("description", d.description)
+            obj.put("createdAt", d.createdAt)
+            deptArray.put(obj)
+        }
+        root.put("departments", deptArray)
+
+        val secArray = JSONArray()
+        for (s in sections) {
+            val obj = JSONObject()
+            obj.put("id", s.id)
+            obj.put("code", s.code)
+            obj.put("name", s.name)
+            obj.put("address", s.address)
+            obj.put("departmentId", s.departmentId)
+            obj.put("description", s.description)
+            obj.put("createdAt", s.createdAt)
+            obj.put("updatedAt", s.updatedAt)
+            secArray.put(obj)
+        }
+        root.put("sections", secArray)
+
+        val prodArray = JSONArray()
+        for (p in products) {
+            val obj = JSONObject()
+            obj.put("id", p.id)
+            obj.put("articleNumber", p.articleNumber)
+            obj.put("name", p.name)
+            obj.put("departmentId", p.departmentId)
+            obj.put("sectionId", p.sectionId)
+            obj.put("stockQuantity", p.stockQuantity)
+            obj.put("imageUri", p.imageUri ?: "")
+            obj.put("imageUri2", p.imageUri2 ?: "")
+            obj.put("imageUri3", p.imageUri3 ?: "")
+            obj.put("description", p.description)
+            obj.put("isActive", p.isActive)
+            obj.put("createdAt", p.createdAt)
+            obj.put("updatedAt", p.updatedAt)
+            prodArray.put(obj)
+        }
+        root.put("products", prodArray)
+
+        root.toString(2)
+    }
+
+    suspend fun restoreFromBackupJson(jsonString: String): Result<BackupRestoreResult> = withContext(Dispatchers.IO) {
+        try {
+            val root = JSONObject(jsonString)
+
+            val deptArray = root.optJSONArray("departments") ?: JSONArray()
+            val parsedDepts = mutableListOf<DepartmentEntity>()
+            for (i in 0 until deptArray.length()) {
+                val obj = deptArray.getJSONObject(i)
+                parsedDepts.add(
+                    DepartmentEntity(
+                        id = obj.optLong("id", 0L),
+                        name = obj.getString("name"),
+                        description = obj.optString("description", ""),
+                        createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+                    )
+                )
+            }
+
+            val secArray = root.optJSONArray("sections") ?: JSONArray()
+            val parsedSecs = mutableListOf<SectionEntity>()
+            for (i in 0 until secArray.length()) {
+                val obj = secArray.getJSONObject(i)
+                parsedSecs.add(
+                    SectionEntity(
+                        id = obj.optLong("id", 0L),
+                        code = obj.getString("code"),
+                        name = obj.optString("name", "Komuditi ${obj.getString("code")}"),
+                        address = obj.getString("address"),
+                        departmentId = obj.getLong("departmentId"),
+                        description = obj.optString("description", ""),
+                        createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
+                        updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
+                    )
+                )
+            }
+
+            val prodArray = root.optJSONArray("products") ?: JSONArray()
+            val parsedProds = mutableListOf<ProductEntity>()
+            for (i in 0 until prodArray.length()) {
+                val obj = prodArray.getJSONObject(i)
+                val img = obj.optString("imageUri", "")
+                val img2 = obj.optString("imageUri2", "")
+                val img3 = obj.optString("imageUri3", "")
+                parsedProds.add(
+                    ProductEntity(
+                        id = obj.optLong("id", 0L),
+                        articleNumber = obj.getString("articleNumber"),
+                        name = obj.getString("name"),
+                        departmentId = obj.getLong("departmentId"),
+                        sectionId = obj.getLong("sectionId"),
+                        stockQuantity = obj.optInt("stockQuantity", 0),
+                        imageUri = if (img.isNotEmpty()) img else null,
+                        imageUri2 = if (img2.isNotEmpty()) img2 else null,
+                        imageUri3 = if (img3.isNotEmpty()) img3 else null,
+                        description = obj.optString("description", ""),
+                        isActive = obj.optBoolean("isActive", true),
+                        createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
+                        updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
+                    )
+                )
+            }
+
+            dao.clearProducts()
+            dao.clearSections()
+            dao.clearDepartments()
+
+            dao.insertDepartments(parsedDepts)
+            dao.insertSections(parsedSecs)
+            dao.insertProducts(parsedProds)
+
+            Result.success(
+                BackupRestoreResult(
+                    departmentCount = parsedDepts.size,
+                    sectionCount = parsedSecs.size,
+                    productCount = parsedProds.size,
+                    historyCount = 0
+                )
+            )
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // --- EXCEL EXPORT (OFFLINE WITH EMBEDDED IMAGES) ---
+    suspend fun exportProductsToExcel(products: List<ProductWithLocation>): File {
+        return ExcelExporter.exportToExcel(context, products)
+    }
+
     // --- CSV EXPORT ---
     suspend fun exportProductsToCsv(products: List<ProductWithLocation>): String = withContext(Dispatchers.IO) {
         val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
         val sb = StringBuilder()
-        sb.append("Artikel,Nama Produk,Jumlah Stok,Departemen,Section,Alamat Section,Deskripsi,Tanggal Ditambahkan,Tanggal Diperbarui\n")
+        sb.append("Artikel,Nama Produk,Jumlah Stok,Departemen,Komuditi,Alamat Komuditi,Deskripsi,Tanggal Ditambahkan,Tanggal Diperbarui\n")
         for (item in products) {
             val p = item.product
             val row = listOf(
@@ -459,37 +608,73 @@ class InventoryRepository(
         val validList = mutableListOf<CsvImportItem>()
         val problemList = mutableListOf<CsvImportItem>()
 
-        // Check if first row is header
-        val startIndex = if (lines[0].contains("Artikel", ignoreCase = true) || lines[0].contains("Article", ignoreCase = true)) 1 else 0
+        val firstLineCols = parseCsvLine(lines[0]).map { it.trim().lowercase(Locale.getDefault()) }
+        val hasHeader = firstLineCols.any {
+            it.contains("artikel") || it.contains("article") || it.contains("produk") || it.contains("nama")
+        }
+        val startIndex = if (hasHeader) 1 else 0
 
-        val seenArticlesInFile = mutableSetOf<String>()
+        var colArticle = -1
+        var colName = -1
+        var colStock = -1
+        var colDept = -1
+        var colSection = -1
+        var colAddress = -1
+        var colDesc = -1
+
+        if (hasHeader) {
+            for ((idx, col) in firstLineCols.withIndex()) {
+                when {
+                    col.contains("artikel") || col.contains("article") -> colArticle = idx
+                    col.contains("nama") || col.contains("name") -> colName = idx
+                    col.contains("stok") || col.contains("stock") || col.contains("jumlah") || col.contains("qty") -> colStock = idx
+                    col.contains("depart") || col.contains("dept") -> colDept = idx
+                    col.contains("alamat") || col.contains("address") -> colAddress = idx
+                    col.contains("komuditi") || col.contains("section") || col.contains("kode") -> colSection = idx
+                    col.contains("deskripsi") || col.contains("description") || col.contains("ket") -> colDesc = idx
+                }
+            }
+        }
+
+        // Fallback default index positions if no header was detected or matched
+        if (colArticle == -1) colArticle = 0
+        if (colName == -1) colName = 1
+        if (colStock == -1) colStock = 2
+        if (colDept == -1) colDept = 3
+        if (colSection == -1) colSection = 4
+        if (colAddress == -1) colAddress = 5
+        if (colDesc == -1) colDesc = 6
+
+        val seenArticleSectionInFile = mutableSetOf<String>()
 
         for (i in startIndex until lines.size) {
             val line = lines[i]
             val cols = parseCsvLine(line)
             val rowNum = i + 1
 
-            val article = cols.getOrNull(0)?.trim() ?: ""
-            val name = cols.getOrNull(1)?.trim() ?: ""
-            val stockRaw = cols.getOrNull(2)?.trim() ?: "0"
+            val article = cols.getOrNull(colArticle)?.trim() ?: ""
+            val name = cols.getOrNull(colName)?.trim() ?: ""
+            val stockRaw = cols.getOrNull(colStock)?.trim() ?: "0"
             val stockQty = stockRaw.toIntOrNull() ?: 0
-            val deptName = cols.getOrNull(3)?.trim() ?: ""
-            val sectionCode = cols.getOrNull(4)?.trim() ?: ""
-            val sectionAddress = cols.getOrNull(5)?.trim() ?: ""
-            val description = cols.getOrNull(6)?.trim() ?: ""
+            val deptName = cols.getOrNull(colDept)?.trim() ?: ""
+            val sectionCode = cols.getOrNull(colSection)?.trim() ?: ""
+            val sectionAddress = cols.getOrNull(colAddress)?.trim() ?: ""
+            val description = if (colDesc >= 0) cols.getOrNull(colDesc)?.trim() ?: "" else ""
 
             val errors = mutableListOf<String>()
             if (article.isEmpty()) errors.add("Artikel kosong")
             if (name.isEmpty()) errors.add("Nama produk kosong")
             if (deptName.isEmpty()) errors.add("Departemen kosong")
-            if (sectionCode.isEmpty()) errors.add("Section kosong")
+            if (sectionCode.isEmpty()) errors.add("Komuditi kosong")
             if (stockQty < 0) errors.add("Stok tidak boleh negatif")
 
             if (article.isNotEmpty()) {
-                if (seenArticlesInFile.contains(article)) {
-                    errors.add("Duplikasi artikel '$article' dalam file")
+                val effectiveAddress = sectionAddress.trim().ifEmpty { "Rak $sectionCode" }
+                val fileKey = "${article.lowercase(Locale.getDefault())}_${effectiveAddress.lowercase(Locale.getDefault())}"
+                if (seenArticleSectionInFile.contains(fileKey)) {
+                    errors.add("Duplikasi artikel '$article' pada Alamat '$effectiveAddress' dalam file")
                 } else {
-                    seenArticlesInFile.add(article)
+                    seenArticleSectionInFile.add(fileKey)
                 }
             }
 
@@ -526,7 +711,7 @@ class InventoryRepository(
         }
 
         CsvImportPreview(
-            totalFound = validList.size + problemList.size,
+            totalFound = lines.size - startIndex,
             readyToImport = validList.size,
             problematicCount = problemList.size,
             validItems = validList,
@@ -540,35 +725,50 @@ class InventoryRepository(
         val sectionCache = mutableMapOf<String, Long>()
 
         for (item in items) {
-            // Find or create department
-            val deptId = deptCache.getOrPut(item.departmentName.lowercase(Locale.getDefault())) {
-                val found = dao.getDepartmentByName(item.departmentName)
-                found?.id ?: dao.insertDepartment(DepartmentEntity(name = item.departmentName))
+            if (!item.isValid) continue
+
+            // 1. Resolve or create department
+            val normDept = item.departmentName.trim()
+            val deptId = deptCache.getOrPut(normDept.lowercase(Locale.getDefault())) {
+                val existing = dao.getDepartmentByName(normDept)
+                if (existing != null) {
+                    existing.id
+                } else {
+                    dao.insertDepartment(DepartmentEntity(name = normDept, description = "Dibuat otomatis via CSV"))
+                }
             }
 
-            // Find or create section
-            val sectionId = sectionCache.getOrPut(item.sectionCode.lowercase(Locale.getDefault())) {
-                val found = dao.getSectionByCode(item.sectionCode)
-                found?.id ?: dao.insertSection(
-                    SectionEntity(
-                        code = item.sectionCode.uppercase(Locale.getDefault()),
-                        name = "Section ${item.sectionCode.uppercase(Locale.getDefault())}",
-                        address = item.sectionAddress,
-                        departmentId = deptId
+            // 2. Resolve or create section (Komuditi) by address and code
+            val normCode = item.sectionCode.trim().uppercase(Locale.getDefault())
+            val normAddress = item.sectionAddress.trim().ifEmpty { "Rak $normCode" }
+            val cacheKey = "${normCode}_${normAddress.lowercase(Locale.getDefault())}"
+            val sectionId = sectionCache.getOrPut(cacheKey) {
+                val existing = dao.getSectionByAddress(normAddress) ?: dao.getSectionByCodeAndAddress(normCode, normAddress)
+                if (existing != null) {
+                    existing.id
+                } else {
+                    dao.insertSection(
+                        SectionEntity(
+                            code = normCode,
+                            name = "Komuditi $normCode",
+                            address = normAddress,
+                            departmentId = deptId,
+                            description = "Dibuat otomatis via CSV"
+                        )
                     )
-                )
+                }
             }
 
-            // Upsert product
-            val existing = dao.getProductByArticle(item.article)
-            if (existing != null) {
+            // 3. Upsert product for this specific section/location
+            val existingInLocation = dao.getProductByArticleAndSection(item.article, sectionId)
+            if (existingInLocation != null) {
                 dao.updateProduct(
-                    existing.product.copy(
+                    existingInLocation.product.copy(
                         name = item.name,
-                        stockQuantity = item.stockQuantity,
+                        stockQuantity = existingInLocation.product.stockQuantity + item.stockQuantity,
                         departmentId = deptId,
                         sectionId = sectionId,
-                        description = item.description.ifEmpty { existing.product.description },
+                        description = item.description.ifEmpty { existingInLocation.product.description },
                         updatedAt = System.currentTimeMillis()
                     )
                 )

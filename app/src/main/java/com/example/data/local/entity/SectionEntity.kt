@@ -16,8 +16,9 @@ import androidx.room.PrimaryKey
         )
     ],
     indices = [
-        Index(value = ["code"], unique = true),
-        Index(value = ["departmentId"])
+        Index(value = ["code"]),
+        Index(value = ["departmentId"]),
+        Index(value = ["address"])
     ]
 )
 data class SectionEntity(
@@ -31,3 +32,6 @@ data class SectionEntity(
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )
+
+typealias KomuditiEntity = SectionEntity
+

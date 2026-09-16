@@ -22,7 +22,7 @@ import androidx.room.PrimaryKey
         )
     ],
     indices = [
-        Index(value = ["articleNumber"], unique = true),
+        Index(value = ["articleNumber"]),
         Index(value = ["departmentId"]),
         Index(value = ["sectionId"])
     ]
@@ -36,11 +36,19 @@ data class ProductEntity(
     val sectionId: Long,
     val stockQuantity: Int = 0,
     val imageUri: String? = null,
+    val imageUri2: String? = null,
+    val imageUri3: String? = null,
     val description: String = "",
-    val responsiblePerson: String = "",
-    val lastProcessedBy: String = "",
-    val lastProcessedAt: Long = System.currentTimeMillis(),
     val isActive: Boolean = true,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
-)
+) {
+    val allImageUris: List<String>
+        get() = listOfNotNull(imageUri, imageUri2, imageUri3).filter { it.isNotBlank() }
+
+    val primaryImageUri: String?
+        get() = allImageUris.firstOrNull()
+
+    val hasPhoto: Boolean
+        get() = allImageUris.isNotEmpty()
+}

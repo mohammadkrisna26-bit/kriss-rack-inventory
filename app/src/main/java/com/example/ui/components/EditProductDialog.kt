@@ -1,7 +1,9 @@
 package com.example.ui.components
 
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -104,6 +106,10 @@ fun EditProductDialog(
     var imageUri3 by remember { mutableStateOf(p?.imageUri3) }
     var activeSlotForPicker by remember { mutableStateOf<Int?>(null) }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var pendingSlotForAction by remember { mutableStateOf<Int?>(null) }
+    var pendingCameraFile by remember { mutableStateOf<java.io.File?>(null) }
+
     var selectedDeptId by remember {
         mutableStateOf(p?.departmentId ?: initialDepartmentId ?: departments.firstOrNull()?.id ?: 1L)
     }
@@ -124,36 +130,57 @@ fun EditProductDialog(
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
-        if (uri != null) {
+        val slot = pendingSlotForAction
+        if (uri != null && slot != null) {
             onPersistImage(uri) { savedPath ->
-                when (activeSlotForPicker) {
+                when (slot) {
                     1 -> imageUri1 = savedPath
                     2 -> imageUri2 = savedPath
                     3 -> imageUri3 = savedPath
                 }
             }
         }
+        pendingSlotForAction = null
     }
 
     val takePictureLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicturePreview()
-    ) { bitmap: Bitmap? ->
-        if (bitmap != null && onPersistBitmap != null) {
-            onPersistBitmap(bitmap) { savedPath ->
-                when (activeSlotForPicker) {
-                    1 -> imageUri1 = savedPath
-                    2 -> imageUri2 = savedPath
-                    3 -> imageUri3 = savedPath
-                }
+        contract = ActivityResultContracts.TakePicture()
+    ) { success: Boolean ->
+        val slot = pendingSlotForAction
+        val file = pendingCameraFile
+        if (success && file != null && file.exists() && file.length() > 0) {
+            val savedPath = file.absolutePath
+            when (slot) {
+                1 -> imageUri1 = savedPath
+                2 -> imageUri2 = savedPath
+                3 -> imageUri3 = savedPath
             }
+        } else {
+            com.example.util.ImageCaptureHelper.cleanupIfEmpty(file)
         }
+        pendingCameraFile = null
+        pendingSlotForAction = null
     }
 
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            takePictureLauncher.launch(null)
+            try {
+                val (file, uri) = com.example.util.ImageCaptureHelper.createCameraDestination(context)
+                pendingCameraFile = file
+                takePictureLauncher.launch(uri)
+            } catch (e: Exception) {
+                Toast.makeText(context, "Gagal membuka kamera: ${e.message}", Toast.LENGTH_SHORT).show()
+                com.example.util.ImageCaptureHelper.cleanupIfEmpty(pendingCameraFile)
+                pendingCameraFile = null
+                pendingSlotForAction = null
+            }
+        } else {
+            Toast.makeText(context, "Izin kamera diperlukan untuk mengambil foto produk", Toast.LENGTH_SHORT).show()
+            com.example.util.ImageCaptureHelper.cleanupIfEmpty(pendingCameraFile)
+            pendingCameraFile = null
+            pendingSlotForAction = null
         }
     }
 
@@ -453,14 +480,42 @@ fun EditProductDialog(
             hasExistingPhoto = !currentUri.isNullOrEmpty(),
             onDismissRequest = { activeSlotForPicker = null },
             onCameraClick = {
-                cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                val targetSlot = slot
+                pendingSlotForAction = targetSlot
+                activeSlotForPicker = null
+                val hasPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+                    context,
+                    android.Manifest.permission.CAMERA
+                ) == PackageManager.PERMISSION_GRANTED
+                if (hasPermission) {
+                    try {
+                        val (file, uri) = com.example.util.ImageCaptureHelper.createCameraDestination(context)
+                        pendingCameraFile = file
+                        takePictureLauncher.launch(uri)
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Gagal membuka kamera: ${e.message}", Toast.LENGTH_SHORT).show()
+                        com.example.util.ImageCaptureHelper.cleanupIfEmpty(pendingCameraFile)
+                        pendingCameraFile = null
+                        pendingSlotForAction = null
+                    }
+                } else {
+                    cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                }
             },
             onGalleryClick = {
-                photoPickerLauncher.launch(
-                    androidx.activity.result.PickVisualMediaRequest(
-                        ActivityResultContracts.PickVisualMedia.ImageOnly
+                val targetSlot = slot
+                pendingSlotForAction = targetSlot
+                activeSlotForPicker = null
+                try {
+                    photoPickerLauncher.launch(
+                        androidx.activity.result.PickVisualMediaRequest(
+                            ActivityResultContracts.PickVisualMedia.ImageOnly
+                        )
                     )
-                )
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Gagal membuka galeri: ${e.message}", Toast.LENGTH_SHORT).show()
+                    pendingSlotForAction = null
+                }
             },
             onDeletePhotoClick = {
                 when (slot) {
@@ -502,8 +557,11 @@ fun ProductImageSlotItem(
             contentAlignment = Alignment.Center
         ) {
             if (!imageUri.isNullOrEmpty()) {
+                val imageModel = remember(imageUri) {
+                    if (imageUri.startsWith("/")) java.io.File(imageUri) else imageUri
+                }
                 AsyncImage(
-                    model = imageUri,
+                    model = imageModel,
                     contentDescription = "Gambar $slotNumber",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()

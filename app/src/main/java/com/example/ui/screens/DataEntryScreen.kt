@@ -1,6 +1,8 @@
 package com.example.ui.screens
 
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -38,6 +40,9 @@ import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Save
+import androidx.core.content.ContextCompat
+import com.example.util.ImageCaptureHelper
+import java.io.File
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -145,41 +150,66 @@ fun DataEntryScreen(
         }
     }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var pendingSlotForAction by remember { mutableStateOf<Int?>(null) }
+    var pendingCameraFile by remember { mutableStateOf<File?>(null) }
+
     // Photo picker for rapid product
     val canManageDept = entryDeptId == null || viewModel.canUserManageDepartment(entryDeptId!!)
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
-        if (uri != null) {
+        val slot = pendingSlotForAction
+        if (uri != null && slot != null) {
             viewModel.persistImage(uri) { savedPath ->
-                when (activeSlotForPicker) {
+                when (slot) {
                     1 -> viewModel.setRapidImageUri(savedPath)
                     2 -> viewModel.setRapidImageUri2(savedPath)
                     3 -> viewModel.setRapidImageUri3(savedPath)
                 }
             }
         }
+        pendingSlotForAction = null
     }
 
     val takePictureLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicturePreview()
-    ) { bitmap: Bitmap? ->
-        if (bitmap != null) {
-            viewModel.persistBitmap(bitmap) { savedPath ->
-                when (activeSlotForPicker) {
-                    1 -> viewModel.setRapidImageUri(savedPath)
-                    2 -> viewModel.setRapidImageUri2(savedPath)
-                    3 -> viewModel.setRapidImageUri3(savedPath)
-                }
+        contract = ActivityResultContracts.TakePicture()
+    ) { success: Boolean ->
+        val slot = pendingSlotForAction
+        val file = pendingCameraFile
+        if (success && file != null && file.exists() && file.length() > 0) {
+            val savedPath = file.absolutePath
+            when (slot) {
+                1 -> viewModel.setRapidImageUri(savedPath)
+                2 -> viewModel.setRapidImageUri2(savedPath)
+                3 -> viewModel.setRapidImageUri3(savedPath)
             }
+        } else {
+            ImageCaptureHelper.cleanupIfEmpty(file)
         }
+        pendingCameraFile = null
+        pendingSlotForAction = null
     }
 
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            takePictureLauncher.launch(null)
+            try {
+                val (file, uri) = ImageCaptureHelper.createCameraDestination(context)
+                pendingCameraFile = file
+                takePictureLauncher.launch(uri)
+            } catch (e: Exception) {
+                Toast.makeText(context, "Gagal membuka kamera: ${e.message}", Toast.LENGTH_SHORT).show()
+                ImageCaptureHelper.cleanupIfEmpty(pendingCameraFile)
+                pendingCameraFile = null
+                pendingSlotForAction = null
+            }
+        } else {
+            Toast.makeText(context, "Izin kamera diperlukan untuk mengambil foto produk", Toast.LENGTH_SHORT).show()
+            ImageCaptureHelper.cleanupIfEmpty(pendingCameraFile)
+            pendingCameraFile = null
+            pendingSlotForAction = null
         }
     }
 
@@ -904,14 +934,42 @@ fun DataEntryScreen(
             hasExistingPhoto = !currentUri.isNullOrEmpty(),
             onDismissRequest = { activeSlotForPicker = null },
             onCameraClick = {
-                cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                val targetSlot = slot
+                pendingSlotForAction = targetSlot
+                activeSlotForPicker = null
+                val hasPermission = ContextCompat.checkSelfPermission(
+                    context,
+                    android.Manifest.permission.CAMERA
+                ) == PackageManager.PERMISSION_GRANTED
+                if (hasPermission) {
+                    try {
+                        val (file, uri) = ImageCaptureHelper.createCameraDestination(context)
+                        pendingCameraFile = file
+                        takePictureLauncher.launch(uri)
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Gagal membuka kamera: ${e.message}", Toast.LENGTH_SHORT).show()
+                        ImageCaptureHelper.cleanupIfEmpty(pendingCameraFile)
+                        pendingCameraFile = null
+                        pendingSlotForAction = null
+                    }
+                } else {
+                    cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                }
             },
             onGalleryClick = {
-                photoPickerLauncher.launch(
-                    androidx.activity.result.PickVisualMediaRequest(
-                        ActivityResultContracts.PickVisualMedia.ImageOnly
+                val targetSlot = slot
+                pendingSlotForAction = targetSlot
+                activeSlotForPicker = null
+                try {
+                    photoPickerLauncher.launch(
+                        androidx.activity.result.PickVisualMediaRequest(
+                            ActivityResultContracts.PickVisualMedia.ImageOnly
+                        )
                     )
-                )
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Gagal membuka galeri: ${e.message}", Toast.LENGTH_SHORT).show()
+                    pendingSlotForAction = null
+                }
             },
             onDeletePhotoClick = {
                 when (slot) {

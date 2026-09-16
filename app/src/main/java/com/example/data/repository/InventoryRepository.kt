@@ -3,6 +3,7 @@ package com.example.data.repository
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
+import android.util.Log
 import com.example.data.local.dao.InventoryDao
 import com.example.data.local.entity.DepartmentEntity
 import com.example.data.local.entity.ProductEntity
@@ -359,19 +360,52 @@ class InventoryRepository(
     }
 
     // --- IMAGE PERSISTENCE ---
+    fun createCameraDestination(): Pair<File, Uri> {
+        return com.example.util.ImageCaptureHelper.createCameraDestination(context)
+    }
+
     suspend fun persistImage(sourceUri: Uri): String = withContext(Dispatchers.IO) {
         try {
             val imagesDir = File(context.filesDir, "images").apply { if (!exists()) mkdirs() }
+
+            // If already pointing to an existing file inside imagesDir, keep it directly
+            val rawPath = sourceUri.path
+            if (rawPath != null) {
+                val candidateFile = File(rawPath)
+                if (candidateFile.exists() && candidateFile.parentFile?.absolutePath == imagesDir.absolutePath && candidateFile.length() > 0) {
+                    return@withContext candidateFile.absolutePath
+                }
+            }
+
             val fileName = "prod_${System.currentTimeMillis()}_${(1000..9999).random()}.jpg"
             val destFile = File(imagesDir, fileName)
 
-            context.contentResolver.openInputStream(sourceUri)?.use { input ->
-                FileOutputStream(destFile).use { output ->
-                    input.copyTo(output)
+            var copied = false
+            try {
+                context.contentResolver.openInputStream(sourceUri)?.use { input ->
+                    FileOutputStream(destFile).use { output ->
+                        input.copyTo(output)
+                        copied = true
+                    }
+                }
+            } catch (_: Exception) {
+                if (rawPath != null) {
+                    val fallbackFile = File(rawPath)
+                    if (fallbackFile.exists() && fallbackFile.isFile) {
+                        fallbackFile.copyTo(destFile, overwrite = true)
+                        copied = true
+                    }
                 }
             }
-            destFile.absolutePath
+
+            if (copied && destFile.exists() && destFile.length() > 0) {
+                destFile.absolutePath
+            } else {
+                if (destFile.exists()) destFile.delete()
+                sourceUri.toString()
+            }
         } catch (e: Exception) {
+            Log.e("InventoryRepo", "Error persisting image $sourceUri: ${e.message}", e)
             sourceUri.toString()
         }
     }

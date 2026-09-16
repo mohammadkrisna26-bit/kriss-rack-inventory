@@ -76,10 +76,7 @@ fun PhotoSourcePickerDialog(
                     title = "AMBIL FOTO",
                     subtitle = "Buka kamera HP dan foto produk langsung",
                     iconColor = MaterialTheme.colorScheme.primary,
-                    onClick = {
-                        onDismissRequest()
-                        onCameraClick()
-                    }
+                    onClick = onCameraClick
                 )
 
                 Spacer(modifier = Modifier.height(10.dp))
@@ -89,10 +86,7 @@ fun PhotoSourcePickerDialog(
                     title = "GALERI",
                     subtitle = "Pilih foto yang tersimpan di galeri HP",
                     iconColor = MaterialTheme.colorScheme.secondary,
-                    onClick = {
-                        onDismissRequest()
-                        onGalleryClick()
-                    }
+                    onClick = onGalleryClick
                 )
 
                 if (hasExistingPhoto && onDeletePhotoClick != null) {
@@ -103,10 +97,7 @@ fun PhotoSourcePickerDialog(
                         title = "Hapus Foto",
                         subtitle = "Hapus foto dari produk ini",
                         iconColor = MaterialTheme.colorScheme.error,
-                        onClick = {
-                            onDismissRequest()
-                            onDeletePhotoClick()
-                        }
+                        onClick = onDeletePhotoClick
                     )
                 }
 

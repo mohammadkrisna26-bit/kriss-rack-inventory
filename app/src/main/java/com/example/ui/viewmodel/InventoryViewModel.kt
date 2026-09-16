@@ -666,6 +666,10 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     // --- IMAGE SAVING HELPER ---
+    fun createCameraDestination(): Pair<File, Uri> {
+        return repository.createCameraDestination()
+    }
+
     fun persistImage(uri: Uri, onResult: (String) -> Unit) {
         viewModelScope.launch {
             val path = repository.persistImage(uri)
